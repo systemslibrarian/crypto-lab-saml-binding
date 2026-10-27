@@ -114,14 +114,19 @@ npm run build          dist/index.html 0.87 kB, index js 25.70 kB (9.18 kB gzip)
                        lesson chunk 577.06 kB (137.90 kB gzip), built in 153 ms
 npx playwright test --list    17 tests discovered
 npm run test:a11y      local Chromium could not launch on this Mac (Mach rendezvous error 141);
-                       no browser test began, so hosted Linux verification is required
+                       no browser test began, so hosted Linux supplies this gate
 ```
 
 Hosted corrected-head run `40441448660` passed all Node 22/24/26 quality jobs and 16 of
 17 browser tests, then correctly failed the omissions claim because an exact substring
 assertion treated HTML line-wrapping whitespace as content. The page carried the complete
 sentence. The test now collapses whitespace before checking the full learner-visible
-sentence; the next exact-head run must pass before merge.
+sentence. Exact-head pull-request run `40441775524` on `3378f95` then passed all three
+Node quality jobs (**88/88 tests**, clean baseline, **26/26 mutations caught**, restored
+sources, clean build), plus all **17/17** browser claims, accessibility, forced-colors,
+keyboard and reflow checks. CodeQL run `40441775511` on the same head also completed
+successfully. The deploy and Pages-publication steps were correctly skipped because this
+was a pull request.
 
 ### Unit coverage of the protocol modules
 
@@ -220,9 +225,8 @@ Three places where this lab is checked against something other than itself.
 
 ## 8. Accessibility and reflow
 
-The initial pull-request head was driven through the page's own controls, never injected,
-in every scenario state. The independently corrected head retains these gates; its hosted
-result is recorded after push rather than inferred from the earlier run:
+Exact-head hosted run `40441775524` drove the page through its own controls, never
+injecting state, and passed all 17 browser checks after the independent corrections:
 
 - axe `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa` — zero violations at **320, 380 and
   1280 px**, in the un-run state, the baseline, the wrapping attack and the full control
