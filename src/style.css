@@ -1,0 +1,181 @@
+/* One pinned dark theme. No toggle, no stored preference, no light palette. */
+:root {
+  --bg: #0b0f14;
+  --panel: #121823;
+  --panel2: #0f141d;
+  --line: #243044;
+  --text: #e6edf6;
+  --text2: #9fb0c6;
+  --accent: #5ad1c8;
+  --warn: #ffb84d;
+  --bad: #ff7a90;
+  --good: #7ee0a8;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--accent);
+  color: #06121a;
+  padding: 0.6rem 1rem;
+  z-index: 10;
+}
+.skip:focus { left: 0; }
+
+.wrap {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 4rem;
+}
+
+header.hero {
+  border-bottom: 1px solid var(--line);
+  background: var(--panel2);
+}
+header.hero .wrap { padding-bottom: 1.5rem; }
+
+h1 { font-size: clamp(1.4rem, 4vw, 2.1rem); line-height: 1.25; margin: 0 0 0.5rem; }
+h2 { font-size: clamp(1.1rem, 3vw, 1.4rem); margin: 2rem 0 0.6rem; }
+h3 { font-size: 1.02rem; margin: 1.3rem 0 0.4rem; }
+p { margin: 0.6rem 0; }
+.lede { color: var(--text2); max-width: 70ch; }
+
+.tag {
+  display: inline-block;
+  font: 600 0.74rem/1.5 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+  margin-bottom: 0.7rem;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 1rem;
+  margin: 1rem 0;
+}
+
+.grid2 {
+  display: grid;
+  /* min() keeps the 290px floor from becoming a 290px MINIMUM at 320px, where
+     the column plus two sets of padding would push the page sideways. */
+  grid-template-columns: repeat(auto-fit, minmax(min(290px, 100%), 1fr));
+  gap: 1rem;
+}
+
+.btn-row { display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 1rem 0; }
+
+button {
+  font: 600 0.95rem/1 system-ui, sans-serif;
+  color: #06121a;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 0.7rem 1rem;
+  cursor: pointer;
+  min-height: 44px;
+}
+button.secondary { background: transparent; color: var(--text); border-color: var(--line); }
+button[disabled] { opacity: 0.55; cursor: progress; }
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid var(--warn);
+  outline-offset: 2px;
+}
+
+.status {
+  font: 0.9rem/1.5 var(--mono);
+  color: var(--text2);
+  border-left: 3px solid var(--line);
+  padding: 0.4rem 0 0.4rem 0.7rem;
+  margin: 0.6rem 0;
+}
+
+.table-wrap { overflow-x: auto; margin: 0.8rem 0; }
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--text2); font-weight: 600; white-space: nowrap; }
+caption { text-align: left; color: var(--text2); padding-bottom: 0.4rem; font-size: 0.88rem; }
+
+code, pre, .mono { font-family: var(--mono); }
+
+/* URNs, algorithm identifiers and assertion IDs are long unbreakable tokens.
+   Inline, they must wrap, or at 320px they push the whole page sideways. The
+   XML document keeps its own scroll region instead, because breaking lines
+   inside it would misrepresent the bytes. */
+.mono, code, td.mono, .status {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+pre.doc { overflow-wrap: normal; word-break: normal; }
+pre.doc {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.8rem;
+  overflow-x: auto;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  max-height: 26rem;
+  white-space: pre;
+}
+
+.ok { color: var(--good); }
+.no { color: var(--bad); }
+.warnc { color: var(--warn); }
+
+ul { margin: 0.5rem 0; padding-left: 1.2rem; }
+li { margin: 0.25rem 0; }
+
+.layer {
+  border-left: 3px solid var(--line);
+  padding-left: 0.8rem;
+  margin: 0.8rem 0;
+}
+.layer.pass { border-left-color: var(--good); }
+.layer.fail { border-left-color: var(--bad); }
+.layer.skip { border-left-color: var(--text2); }
+.layer h4 { margin: 0 0 0.2rem; font-size: 0.95rem; }
+.layer p { margin: 0.15rem 0; color: var(--text2); font-size: 0.9rem; }
+
+footer { border-top: 1px solid var(--line); margin-top: 2.5rem; }
+footer .wrap { padding-top: 1.2rem; color: var(--text2); font-size: 0.88rem; }
+a { color: var(--accent); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+
+/* Forced colors: hand every surface back to the system pair.
+   Setting only the text colour here was a real bug - it painted CanvasText on
+   this lab's own dark background, which a contrast check reads as a failure
+   and a user of a high-contrast theme would read as unreadable. Colour and
+   background are always changed together. */
+@media (forced-colors: active) {
+  body, header.hero, .card, pre.doc, table, th, td {
+    background: Canvas;
+    color: CanvasText;
+  }
+  .card, pre.doc, .table-wrap { border: 1px solid CanvasText; }
+  button { border: 1px solid ButtonText; background: ButtonFace; color: ButtonText; }
+  .ok, .no, .warnc, .lede, .status, caption, th { color: CanvasText; }
+  .layer { border-left: 3px solid CanvasText; }
+  a { color: LinkText; }
+}
