@@ -90,8 +90,8 @@ describe('the two consumers, on the same bytes', () => {
     expect(report.vulnerable.subject).toBe('admin@lab.invalid');
     expect(report.vulnerable.role).toBe('administrator');
 
-    // Every SAML profile rule passed for it, too. Profile validation is not a
-    // defence against validating the wrong element.
+    // Every implemented selected-assertion check passed for it, too. Running
+    // those checks on the wrong element is not a binding defence.
     expect(report.vulnerable.checks.every((check) => check.passed)).toBe(true);
 
     // The repaired consumer: same signature, refused on the binding.

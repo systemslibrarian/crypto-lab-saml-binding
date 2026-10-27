@@ -61,8 +61,8 @@ document.getElementById('app')!.innerHTML = `
       A real XML signature can verify perfectly over a document, and the application
       reading that document can still authorize the wrong person. This lab builds a
       synthetic SAML 2.0 Web Browser SSO response, signs it with a key generated in
-      this tab, and runs it through two service providers that differ in exactly one
-      line of code.
+      this tab, and runs it through two service providers that differ at one load-bearing
+      interface boundary.
     </p>
   </div>
 </header>
@@ -88,8 +88,8 @@ document.getElementById('app')!.innerHTML = `
     <div class="table-wrap" tabindex="0" role="region" aria-label="Declared algorithm and structure subset">
       <table>
         <caption>
-          The accepted subset. Anything outside it is refused by name, before any
-          cryptography runs.
+          The declared bounded subset. Every mismatch in a listed field is refused by
+          a named rule; unlisted schema requirements are outside this lesson.
         </caption>
         <thead><tr><th scope="col">Field</th><th scope="col">Accepted</th><th scope="col">Source</th></tr></thead>
         <tbody>${subsetRows}</tbody>
@@ -117,16 +117,20 @@ document.getElementById('app')!.innerHTML = `
       <li><strong>L2 — node and reference binding.</strong> Which single element does the one
       <code>Reference</code> resolve to, is that resolution unambiguous, and
       <em>is that element the one the application is about to read?</em></li>
-      <li><strong>L3 — SAML profile validation.</strong> Audience, recipient, subject
-      confirmation, <code>InResponseTo</code>, validity windows and single use — evaluated on
-      the L2 element and on nothing else.</li>
+      <li><strong>L3 — SAML profile validation.</strong> Response correlation and status,
+      audience, recipient, a required authentication statement, subject confirmation,
+      <code>InResponseTo</code>, validity windows and single use — evaluated on the L2 element
+      and local service-provider state. If an assertion
+      carries several bearer confirmations, one complete confirmation tuple must pass; fields
+      are never combined across candidates.</li>
       <li><strong>L4 — application authorization.</strong> Which principal, and which role?</li>
     </ul>
     <p>
       The dependency used here performs exclusive canonicalization, the enveloped-signature
       transform, reference resolution, digesting and RSA verification — that is L1 and the
-      digest half of L2, and it does them better than hand-written code would. What it returns
-      is a boolean. It does not tell the application <em>which</em> element it validated.
+      digest half of L2, and it does them better than hand-written code would. In this pinned
+      version it also refuses duplicate IDs, which the suite verifies directly. What it returns
+      is still a boolean. It does not tell the application <em>which</em> element it validated.
       That gap is the lesson.
     </p>
   </div>
@@ -195,7 +199,13 @@ document.getElementById('app')!.innerHTML = `
       <li><strong>Production XML-parser hardening.</strong> Parsing uses a library's defaults.
       This lab does not claim defence against entity expansion, external entities, or
       schema-validation and round-tripping differences between parsers — and that last class is
-      itself a known source of wrapping variants.</li>
+      itself a known source of wrapping variants. It is not a complete XML Schema or SAML profile
+      validator; Core attributes outside the listed checks are generated, not comprehensively
+      validated.</li>
+      <li><strong>Full multi-assertion profile conformance.</strong> The attack documents are
+      hostile inputs, not conforming identity-provider output. This bounded consumer does not
+      use the profile's same-principal and every-relied-upon-assertion signature rules as its
+      binding repair; a production consumer must enforce those too.</li>
       <li><strong>The other wrapping permutations.</strong> Somorovsky et al. enumerate twelve
       two-level permutations alone. This page executes one, plus related reference defects.</li>
       <li><strong>Other bindings and profiles</strong> — no HTTP Redirect binding with its
@@ -285,20 +295,24 @@ function verdict(passed: boolean, yes: string, no: string): string {
 }
 
 function layerPanel(report: ScenarioReport): string {
-  const independent = report.verification.independent;
+  const recomputed = report.verification.recomputed;
   const structure = report.verification.structure;
   const binding = report.verification.verifiedElement !== null;
-  const l1 = independent ? independent.signatureValid && independent.digestMatches : false;
+  const l1 = recomputed
+    ? recomputed.signatureValid &&
+      recomputed.digestMatches &&
+      report.verification.libraryVerified
+    : false;
 
-  const l1Body = independent
+  const l1Body = recomputed
     ? `<p>Reference digest recomputed here: <span class="mono">${esc(
-        independent.recomputedDigest.slice(0, 24),
+        recomputed.recomputedDigest.slice(0, 24),
       )}…</span></p>
        <p>Digest claimed by the document: <span class="mono">${esc(
-         independent.claimedDigest.slice(0, 24),
-       )}…</span> — ${verdict(independent.digestMatches, 'match', 'mismatch')}</p>
-       <p>RSA-SHA256 over ${esc(independent.canonicalSignedInfoLength)} canonical
-          SignedInfo bytes: ${verdict(independent.signatureValid, 'valid', 'invalid')}</p>
+         recomputed.claimedDigest.slice(0, 24),
+       )}…</span> — ${verdict(recomputed.digestMatches, 'match', 'mismatch')}</p>
+       <p>RSA-SHA256 over ${esc(recomputed.canonicalSignedInfoLength)} canonical
+          SignedInfo bytes: ${verdict(recomputed.signatureValid, 'valid', 'invalid')}</p>
        <p>A library asked the same question separately answered
           <span class="mono">${esc(report.verification.libraryVerified)}</span>.</p>`
     : `<p>Not evaluated: the signature is outside the declared subset, or its reference does
@@ -310,7 +324,7 @@ function layerPanel(report: ScenarioReport): string {
     .join('');
 
   return `
-    <div class="layer ${l1 ? 'pass' : independent ? 'fail' : 'skip'}">
+    <div class="layer ${l1 ? 'pass' : recomputed ? 'fail' : 'skip'}">
       <h4>L1 — signature validation</h4>
       ${l1Body}
     </div>

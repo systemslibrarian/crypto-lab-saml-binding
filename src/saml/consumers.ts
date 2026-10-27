@@ -1,7 +1,7 @@
 /**
  * The two service providers.
  *
- * They differ in exactly one thing, and it is not a UI control, a schema check
+ * They differ at one security boundary, and it is not a UI control, a schema check
  * or a better query. It is the SHAPE OF THE VERIFICATION API:
  *
  *   vulnerable:  const ok = await verify(document);        // boolean
@@ -18,6 +18,7 @@ import { NS, allElements, attr, parseXml, type XmlElement } from './dom.js';
 import {
   assertionsInDocumentOrder,
   checkResponseDestination,
+  checkResponseInResponseTo,
   runProfileChecks,
   statusOf,
   subjectOf,
@@ -75,11 +76,43 @@ function emptyOutcome(consumer: 'vulnerable' | 'repaired', selectionMethod: stri
 }
 
 /**
+ * Run the response-level and assertion-level profile rules as one transaction.
+ * The assertion ID may be recorded only when both groups pass; otherwise a
+ * response with a bad Destination, request correlation or Status could poison
+ * a later honest use of the same assertion.
+ */
+function profileChecks(
+  root: XmlElement,
+  assertion: XmlElement,
+  state: ServiceProviderState,
+): CheckResult[] {
+  const destination = checkResponseDestination(root, state);
+  const responseInResponseTo = checkResponseInResponseTo(root, state);
+  const status = statusOf(root);
+  const statusCheck: CheckResult = {
+    name: 'status',
+    label: 'Response status is Success',
+    passed: status === STATUS_SUCCESS,
+    expected: STATUS_SUCCESS,
+    observed: status,
+    source: 'SAMLCore 3.2.2.2',
+  };
+  const responsePassed = destination.passed && responseInResponseTo.passed && statusCheck.passed;
+  return [
+    destination,
+    responseInResponseTo,
+    statusCheck,
+    ...runProfileChecks(assertion, state, { consume: responsePassed }),
+  ];
+}
+
+/**
  * The deliberately vulnerable consumer.
  *
  * It is not careless about cryptography: it really verifies, with a real
- * library, against the right trust anchor, and it really runs every profile
- * check. Its single defect is the one Somorovsky et al. section 8 names - it
+ * library, against the right trust anchor, and it runs all profile checks
+ * implemented by this declared teaching subset. Its deliberate defect is
+ * the one Somorovsky et al. section 8 names - it
  * asks the library a yes/no question and then asks the DOCUMENT, separately,
  * which assertion to use.
  *
@@ -106,9 +139,6 @@ export async function vulnerableConsume(
   }
 
   const root = doc.documentElement as unknown as XmlElement;
-  const destination = checkResponseDestination(root, state);
-  const status = statusOf(root);
-
   // The defect, in one line.
   const assertion = assertionsInDocumentOrder(doc)[0];
   if (!assertion) {
@@ -118,18 +148,7 @@ export async function vulnerableConsume(
   }
   outcome.selectedAssertionId = attr(assertion, 'ID');
 
-  const checks = [
-    destination,
-    {
-      name: 'status',
-      label: 'Response status is Success',
-      passed: status === STATUS_SUCCESS,
-      expected: STATUS_SUCCESS,
-      observed: status,
-      source: 'SAMLCore 3.2.2.2',
-    },
-    ...runProfileChecks(assertion, state, { consume: true }),
-  ];
+  const checks = profileChecks(root, assertion, state);
   outcome.checks = checks;
 
   const failed = checks.find((check) => !check.passed);
@@ -165,14 +184,20 @@ export async function repairedConsume(
     'the element returned by verification - no second query exists',
   );
   const verification = await verifyBound(xml, trustedKey);
-  outcome.signatureVerified = verification.independent?.signatureValid ?? false;
+  outcome.signatureVerified =
+    verification.libraryVerified &&
+    (verification.recomputed?.digestMatches ?? false) &&
+    (verification.recomputed?.signatureValid ?? false);
   outcome.bindingFailures = verification.failures;
   outcome.verifiedAssertionId = verification.verifiedElementId;
 
   if (!verification.verifiedElement) {
     const first = verification.failures[0];
     const cryptographic =
-      first && (first.rule === 'signature-invalid' || first.rule === 'digest-mismatch');
+      first &&
+      (first.rule === 'signature-invalid' ||
+        first.rule === 'digest-mismatch' ||
+        first.rule === 'library-verification-failed');
     outcome.failedLayer = cryptographic ? 'L1 signature' : 'L2 binding';
     outcome.reason = first ? `${first.rule}: ${first.detail}` : 'verification produced no element';
     return { ...outcome, verification };
@@ -182,18 +207,7 @@ export async function repairedConsume(
   outcome.selectedAssertionId = attr(assertion, 'ID');
 
   const root = parseXml(xml).documentElement as unknown as XmlElement;
-  const checks = [
-    checkResponseDestination(root, state),
-    {
-      name: 'status',
-      label: 'Response status is Success',
-      passed: statusOf(root) === STATUS_SUCCESS,
-      expected: STATUS_SUCCESS,
-      observed: statusOf(root),
-      source: 'SAMLCore 3.2.2.2',
-    },
-    ...runProfileChecks(assertion, state, { consume: true }),
-  ];
+  const checks = profileChecks(root, assertion, state);
   outcome.checks = checks;
 
   const failed = checks.find((check) => !check.passed);

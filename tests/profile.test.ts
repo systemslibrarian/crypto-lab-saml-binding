@@ -1,9 +1,11 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { honestSpec, type ResponseSpec } from '../src/saml/build.js';
+import { buildResponse, honestSpec, type ResponseSpec } from '../src/saml/build.js';
 import { issueSignedResponse, newParties, runControls, type Parties } from '../src/saml/lesson.js';
 import { repairedConsume } from '../src/saml/consumers.js';
 import { freshState } from '../src/saml/checks.js';
 import { ACS_URL, CLOCK_SKEW_SECONDS, IDP_ENTITY_ID, SP_ENTITY_ID } from '../src/saml/profile.js';
+import { signResponse } from '../src/saml/sign.js';
+import { NS, allElements, childElements, type XmlDocument, type XmlElement } from '../src/saml/dom.js';
 
 /**
  * L3 - SAML profile validation, including the boundaries.
@@ -30,6 +32,21 @@ async function consume(overrides: Partial<ResponseSpec>, pending: string | null 
   return repairedConsume(xml, parties.idp.publicKey, state(pending));
 }
 
+async function consumeDocument(doc: XmlDocument, pending: string | null = PENDING) {
+  const spec = honestSpec();
+  const xml = await signResponse(doc, parties.idp.privateKey, {
+    referenceId: spec.assertionId,
+    placeInside: 'referenced-element',
+  });
+  return repairedConsume(xml, parties.idp.publicKey, state(pending));
+}
+
+function honestAssertion(doc: XmlDocument): XmlElement {
+  const assertion = allElements(doc, NS.saml, 'Assertion')[0];
+  if (!assertion) throw new Error('the fixture has no saml:Assertion');
+  return assertion;
+}
+
 function check(outcome: Awaited<ReturnType<typeof consume>>, name: string) {
   const found = outcome.checks.find((row) => row.name === name);
   expect(found, `no check named ${name}`).toBeDefined();
@@ -43,11 +60,13 @@ describe('the honest response passes every rule', () => {
     expect(outcome.checks.filter((row) => !row.passed)).toEqual([]);
     expect(outcome.checks.map((row) => row.name)).toEqual([
       'destination',
+      'response-in-response-to',
       'status',
       'issuer',
       'audience',
       'subject-confirmation-method',
       'subject-present',
+      'authentication-statement-present',
       'confirmation-notbefore-absent',
       'recipient',
       'in-response-to',
@@ -89,17 +108,20 @@ describe('each rule fails on its own, for its own reason', () => {
 
   it('InResponseTo that answers a different request', async () => {
     const outcome = await consume({ inResponseTo: '_s12authnrequest00000000000000999' });
+    expect(check(outcome, 'response-in-response-to').passed).toBe(false);
     expect(check(outcome, 'in-response-to').passed).toBe(false);
   }, 60_000);
 
   it('InResponseTo present on a response the service provider did not solicit', async () => {
     const outcome = await consume({}, null);
+    expect(check(outcome, 'response-in-response-to').passed).toBe(false);
     expect(check(outcome, 'in-response-to').passed).toBe(false);
     expect(check(outcome, 'in-response-to').expected).toMatch(/unsolicited/);
   }, 60_000);
 
   it('an unsolicited response with no InResponseTo is accepted', async () => {
     const outcome = await consume({ inResponseTo: null }, null);
+    expect(check(outcome, 'response-in-response-to').passed).toBe(true);
     expect(check(outcome, 'in-response-to').passed).toBe(true);
     expect(outcome.authorized).toBe(true);
   }, 60_000);
@@ -107,6 +129,63 @@ describe('each rule fails on its own, for its own reason', () => {
   it('an issuer the service provider does not trust', async () => {
     const outcome = await consume({ issuer: 'https://evil.lab.invalid/saml2/idp' });
     expect(check(outcome, 'issuer').passed).toBe(false);
+  }, 60_000);
+
+  it('requires the selected assertion to contain an authentication statement', async () => {
+    const doc = buildResponse(honestSpec());
+    const assertion = honestAssertion(doc);
+    const statement = childElements(assertion, NS.saml, 'AuthnStatement')[0];
+    if (!statement) throw new Error('the honest fixture has no saml:AuthnStatement');
+    assertion.removeChild(statement);
+
+    const outcome = await consumeDocument(doc);
+    expect(check(outcome, 'authentication-statement-present').passed).toBe(false);
+    expect(outcome.authorized).toBe(false);
+  }, 60_000);
+});
+
+describe('multiple bearer confirmations are evaluated as complete tuples', () => {
+  function appendConfirmationCopy(doc: XmlDocument): {
+    first: XmlElement;
+    second: XmlElement;
+  } {
+    const assertion = honestAssertion(doc);
+    const subject = childElements(assertion, NS.saml, 'Subject')[0];
+    const first = subject ? childElements(subject, NS.saml, 'SubjectConfirmation')[0] : null;
+    if (!subject || !first) throw new Error('the honest fixture has no bearer confirmation');
+    const second = first.cloneNode(true) as XmlElement;
+    subject.appendChild(second);
+    return { first, second };
+  }
+
+  function dataOf(confirmation: XmlElement): XmlElement {
+    const data = childElements(confirmation, NS.saml, 'SubjectConfirmationData')[0];
+    if (!data) throw new Error('the bearer confirmation has no data');
+    return data;
+  }
+
+  it('accepts when the first candidate fails but a later complete candidate succeeds', async () => {
+    const doc = buildResponse(honestSpec());
+    const { first } = appendConfirmationCopy(doc);
+    dataOf(first).setAttribute('Recipient', 'https://wrong.lab.invalid/saml2/acs');
+
+    const outcome = await consumeDocument(doc);
+    expect(outcome.authorized).toBe(true);
+    expect(check(outcome, 'recipient').observed).toBe(ACS_URL);
+    expect(outcome.checks.every((row) => row.passed)).toBe(true);
+  }, 60_000);
+
+  it('never combines individually passing fields from two invalid candidates', async () => {
+    const doc = buildResponse(honestSpec());
+    const { first, second } = appendConfirmationCopy(doc);
+    dataOf(first).setAttribute('Recipient', 'https://wrong.lab.invalid/saml2/acs');
+    dataOf(second).setAttribute('InResponseTo', '_another-request');
+
+    const outcome = await consumeDocument(doc);
+    expect(outcome.authorized).toBe(false);
+    const tupleChecks = ['recipient', 'in-response-to', 'confirmation-validity'];
+    expect(outcome.checks.filter((row) => tupleChecks.includes(row.name)).some((row) => !row.passed))
+      .toBe(true);
   }, 60_000);
 });
 
@@ -140,6 +219,37 @@ describe('validity windows, at the boundary', () => {
     const outcome = await consume({ notBeforeOffsetSeconds: skew + 1 });
     expect(check(outcome, 'conditions-validity').passed).toBe(false);
   }, 60_000);
+
+  it('rejects malformed and impossible Conditions instants instead of treating them as absent', async () => {
+    for (const instant of ['not-a-saml-instant', '2026-02-30T12:00:00Z']) {
+      const doc = buildResponse(honestSpec());
+      const conditions = childElements(honestAssertion(doc), NS.saml, 'Conditions')[0];
+      if (!conditions) throw new Error('the honest fixture has no saml:Conditions');
+      conditions.setAttribute('NotOnOrAfter', instant);
+
+      const outcome = await consumeDocument(doc);
+      expect(check(outcome, 'conditions-validity').passed).toBe(false);
+      expect(outcome.authorized).toBe(false);
+    }
+  }, 60_000);
+
+  it('rejects a malformed bearer-confirmation expiry', async () => {
+    const doc = buildResponse(honestSpec());
+    const assertion = honestAssertion(doc);
+    const subject = childElements(assertion, NS.saml, 'Subject')[0];
+    const confirmation = subject
+      ? childElements(subject, NS.saml, 'SubjectConfirmation')[0]
+      : null;
+    const data = confirmation
+      ? childElements(confirmation, NS.saml, 'SubjectConfirmationData')[0]
+      : null;
+    if (!data) throw new Error('the honest fixture has no SubjectConfirmationData');
+    data.setAttribute('NotOnOrAfter', 'not-a-saml-instant');
+
+    const outcome = await consumeDocument(doc);
+    expect(check(outcome, 'confirmation-validity').passed).toBe(false);
+    expect(outcome.authorized).toBe(false);
+  }, 60_000);
 });
 
 describe('the control table as a whole', () => {
@@ -147,7 +257,7 @@ describe('the control table as a whole', () => {
     const rows = await runControls(parties);
     const unexpected = rows.filter((row) => !row.asExpected);
     expect(unexpected.map((row) => `${row.name} -> ${row.repairedLayer}`)).toEqual([]);
-    expect(rows.length).toBeGreaterThanOrEqual(16);
+    expect(rows).toHaveLength(23);
   }, 120_000);
 
   it('lets the vulnerable consumer authorize an attacker in exactly the binding rows', async () => {

@@ -54,6 +54,15 @@ non-normative; this lab reads the normative documents instead.
 
 Two pieces of that are load-bearing enough to quote.
 
+**Profiles §4.1.4.2, as replaced by Errata 05 E26:** the set of one or more
+assertions carrying bearer subject confirmations must contain at least one
+`AuthnStatement`. This lab relies on one selected assertion, so its bounded,
+stricter rule requires that assertion to carry the statement. When an assertion
+carries more than one `SubjectConfirmation`, the service provider evaluates
+complete candidates and may accept when at least one satisfies the method-
+specific rules; it must not assemble a passing result from fields belonging to
+different candidates.
+
 **Profiles §4.1.4.3, as replaced by Errata 05 E26 — the service provider MUST:**
 
 > • Verify that the Recipient attribute in the bearer `<SubjectConfirmationData>`
@@ -110,11 +119,13 @@ simplification, because the specification itself narrows XML Signature:
   transforms … Verifiers of signatures MAY reject signatures that contain other
   transform algorithms as invalid."
 
-The lab takes every one of those MAYs and SHOULDs at its strictest reading and
-**rejects** anything outside the subset, before any cryptography runs. §5.4.4's
-alternative — accept other transforms but "ensure that no content of the SAML
-message is excluded from the signature" — is deliberately not implemented, and
-that is recorded as a limit rather than presented as rigour.
+The lab takes every one of those MAYs and SHOULDs at its strictest reading. It
+rejects unsupported algorithm, transform and reference declarations before
+cryptography, then checks the enveloped signature's host and schema position
+after verification. §5.4.4's alternative — accept other transforms but "ensure
+that no content of the SAML message is excluded from the signature" — is
+deliberately not implemented, and that is recorded as a limit rather than
+presented as rigour.
 
 ### 1.4 W3C XML Signature and canonicalization
 
@@ -232,8 +243,11 @@ Everything in it is synthetic and local:
 
 ### Declared cryptographic and structural subset
 
-The consumer accepts **exactly** this and rejects everything else by name, before
-any cryptography runs:
+For every field or shape listed here, the consumer rejects every other value by
+name. Unsupported algorithms and reference shapes stop before cryptography;
+binding position is checked after verification, and implemented SAML processing
+rules are L3. This is not complete XML Schema or profile validation, and
+unlisted Core requirements are not implied:
 
 | Element | Accepted value | Source |
 |---|---|---|
@@ -244,14 +258,18 @@ any cryptography runs:
 | `Transforms` | exactly two, in order: `#enveloped-signature` then `xml-exc-c14n#` | Core §5.4.4 |
 | `Reference` | exactly one, `URI="#<ID>"`, same-document, resolving to exactly one element | Core §5.4.2; XMLDSIG 1.1 §4.4.3.3 |
 | Reference target | a `saml:Assertion` that is a **direct child** of the `samlp:Response` | W3C BP14 (name *and* position) |
+| Document root | `samlp:Response` | Profiles §4.1.4.2; W3C BP14 |
 | `KeyInfo` | ignored entirely; the verifying key comes only from the SP's pinned trust anchor | Core §5.4.5 permits absence; trusting `KeyInfo` would make the signature self-authenticating |
+| Subject confirmation | one complete bearer candidate must satisfy the method-specific tuple; fields are never mixed across candidates | Profiles §4.1.4.2/§4.1.4.3 as replaced by E26 |
+| Authentication statement | the one selected assertion has at least one direct `saml:AuthnStatement` | Profiles §4.1.4.2 as replaced by E26; bounded stricter adaptation |
+| Time syntax | bounded four-digit UTC `YYYY-MM-DDThh:mm:ss[.fraction]Z` | Core §1.3.3; bounded teaching adaptation |
 
-**One deliberate deviation from Core §5.4.1, stated rather than hidden.** That
+**One deliberate cryptographic policy choice relative to Core §5.4.1, stated rather than hidden.** That
 section says processors SHOULD support `rsa-sha1`. SHA-1 is not collision
 resistant and is unfit for signatures; the lab implements `rsa-sha256` from
 XMLDSIG 1.1 instead and supports no SHA-1 algorithm at all. A 2005 SHOULD is not
-followed, on purpose, and that is the only place the lab knowingly departs from
-the specification text.
+followed, on purpose. Other bounded adaptations and omissions are named where
+they occur and are not presented as complete profile conformance.
 
 ---
 
@@ -262,20 +280,20 @@ collapses into one. Each has its own panel, its own verdict and its own tests.
 
 | Layer | Question | Established by |
 |---|---|---|
-| **L1 — Signature validation** | Is `SignatureValue` a valid RSA-SHA256 signature over the canonical form of `SignedInfo`, under the key the SP trusts? | XMLDSIG 1.1 §3.2.2. The library, and independently this lab's own Web Crypto recomputation. |
+| **L1 — Signature validation** | Is `SignatureValue` a valid RSA-SHA256 signature over the canonical form of `SignedInfo`, under the key the SP trusts? | XMLDSIG 1.1 §3.2.2. The library plus a bounded Web Crypto recomputation that shares the parser and canonicalizer. |
 | **L2 — Node and reference binding** | Which single element does the one `Reference` resolve to, is that resolution unambiguous, do the transforms stay inside the subset, does the digest match, and **is that element the one the application is about to use**? | XMLDSIG 1.1 §3.2.1 for the digest; **the application** for everything else. No library establishes the last clause. |
-| **L3 — SAML profile validation** | Audience, recipient, subject confirmation, `InResponseTo`, time validity, single use — evaluated **on the L2 element and on nothing else**. | SAMLProf §4.1.4.2/§4.1.4.3/§4.1.4.5 as amended by Errata 05 E26; Core §2.5.1.2/§2.5.1.4. |
+| **L3 — SAML profile validation** | Response correlation and status, audience, recipient, an authentication statement, one complete bearer-confirmation tuple, time validity and single use — evaluated on the L2 element and local SP state. | SAMLProf §4.1.4.2/§4.1.4.3/§4.1.4.5 as amended by Errata 05 E26; Core §1.3.3/§2.5.1.2/§2.5.1.4/§3.2.2. |
 | **L4 — Application authorization** | Which principal, and which role? | The application, from the L3-validated subject of the L2 element. |
 
 **What the dependency establishes, and what it cannot.** `xmldsigjs` performs
 exclusive canonicalization, applies the enveloped-signature transform, resolves
 the same-document reference, digests, and verifies the RSA signature over
 `SignedInfo`. That is L1 and the digest half of L2, and it is genuinely better
-than hand-rolled code at it. What it returns is a **boolean**. It does not and
-cannot tell the application which element it validated, whether another element
-with the same ID exists, or whether the element the application is about to read
-is that element. Those are the three things the repaired consumer adds, and they
-are the lesson.
+than hand-rolled code at it. This pinned version also refuses duplicate IDs on
+its own, which the suite checks directly. What it returns is a **boolean**. It
+does not tell the application which element it validated or whether the element
+the application is about to read is that element. The repaired consumer adds
+that application binding, and that is the lesson.
 
 ---
 
@@ -301,6 +319,10 @@ any input changes.
    `<saml:Advice>`, whose schema admits assertions. Result: the signature still
    verifies (the reference still resolves to an unmodified element the IdP really
    signed), and the vulnerable consumer authorizes **`admin`**.
+
+   This is an adversarial document, not conforming identity-provider output. It
+   intentionally isolates what happens when an application runs its implemented
+   assertion checks on a node other than the one verification covered.
 4. **The repaired consumer.** `verify()` returns the verified `Element` itself
    rather than a boolean, and every later layer takes that handle. It additionally
    rejects duplicate IDs, more than one reference, a non-same-document URI, a
@@ -309,7 +331,9 @@ any input changes.
    directly under the `samlp:Response`. On the same malicious document it refuses,
    naming which rule fired.
 5. **Negative controls**, each failing for its own named reason at its own layer:
-   audience mismatch; recipient mismatch; wrong subject-confirmation method;
+   a non-SAML document root; a misplaced but valid signature; audience,
+   Response Destination, Response `InResponseTo`, and recipient mismatches; a missing authentication
+   statement; a malformed SAML instant; wrong subject-confirmation method;
    `NotBefore` present in `<SubjectConfirmationData>` (forbidden by §4.1.4.2);
    `InResponseTo` mismatch; `InResponseTo` present on an unsolicited response;
    expired assertion; not-yet-valid assertion; replay of an already-consumed
@@ -327,7 +351,7 @@ different rows with different failing layers.
 
 ---
 
-## 5. Independent verification, not self-agreement
+## 5. Verification cross-checks, with shared machinery named
 
 Three anchors, so that no displayed verdict rests only on the implementation
 agreeing with itself:
@@ -339,12 +363,13 @@ agreeing with itself:
    use. The library's canonicalizer must reproduce those bytes exactly. This is
    the one place the lab can check the dependency against the specification rather
    than against itself.
-2. **Independent signature recomputation.** The lab recomputes the SHA-256 digest
-   of the canonicalized reference target, and verifies `SignatureValue` over the
-   canonicalized `SignedInfo`, directly through Web Crypto — a separate code path
-   from the library's `Verify()`. Both results are displayed, and a test asserts
-   they agree on every fixture. Where they ever disagreed, the lab would have to
-   say so rather than pick one.
+2. **A bounded signature recomputation.** The lab reapplies the enveloped
+   transform, recomputes the SHA-256 digest of the canonicalized reference target,
+   and verifies `SignatureValue` over canonicalized `SignedInfo` through Web
+   Crypto without calling the library's `Verify()`. It deliberately shares the
+   parser and canonicalizer, so it is not an end-to-end independent implementation;
+   the hand-derived vectors above constrain that shared machinery. Both verdicts
+   are displayed, and any disagreement fails closed.
 3. **Browser claim tests that recompute the page's own numbers**, including
    re-deriving the authorization outcome the page claims from the rendered
    document and the rendered rights, rather than reading a status string.
@@ -376,7 +401,13 @@ implemented, and the lab claims nothing about any of them:
   defaults. It does not claim defence against XXE, DTD or entity-expansion
   attacks, schema-validation differentials, or parser round-tripping differences
   between implementations — and the last of those is itself a known source of
-  wrapping variants.
+  wrapping variants. It is not a complete XML Schema or SAML profile validator;
+  required Core attributes and constructs outside the listed checks are generated
+  by fixtures but not comprehensively validated.
+- **Full multi-assertion profile conformance.** The attack documents are hostile
+  inputs, not conforming identity-provider output. The bounded consumer does not
+  use E26's same-principal and every-relied-upon-assertion signature-protection
+  rules as its binding repair; a production consumer must enforce them as well.
 - **The other XSW permutations.** Somorovsky et al. Figure 7 enumerates twelve
   two-level permutations plus the one-level cases. This lab executes one, plus
   the reference-substitution variant, and says so.
@@ -388,8 +419,8 @@ implemented, and the lab claims nothing about any of them:
 
 ## 7. Claims and non-claims
 
-**Claimed:** a faithful bounded implementation of the declared subset of the SAML
-2.0 Web Browser SSO POST profile's response processing rules, with real RSA-2048
+**Claimed:** an executable bounded implementation of the explicitly listed SAML
+2.0 Web Browser SSO POST response-processing checks, with real RSA-2048
 / SHA-256 XML signatures over exclusively canonicalized content, real reference
 resolution and digest checking, an executable XML signature wrapping document
 that verifies cryptographically while changing who gets authorized, and a
@@ -417,7 +448,7 @@ synthetic documents here are anything but synthetic.
   2026-10-26).
 - **Dependencies, pinned in the lockfile:** `@xmldom/xmldom` for parsing and
   serialization, `xmldsigjs` for XMLDSIG processing and exclusive
-  canonicalization, Web Crypto for key generation and the independent
+  canonicalization, Web Crypto for key generation and the bounded
   recomputation. `@xmldom/xmldom` is used in **both** the page and the tests on
   purpose: the browser's own `DOMParser` and the test environment's differ in
   namespace handling, and a lesson about which node was selected must not depend

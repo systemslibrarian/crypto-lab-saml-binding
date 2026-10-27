@@ -6,13 +6,15 @@ A browser-based teaching lab about the gap between verifying an XML signature an
 authorizing from the object that signature actually covered. It builds a synthetic
 SAML 2.0 Web Browser SSO response, signs the assertion with an RSA-2048 key generated
 in the page by Web Crypto, and feeds the same bytes to two service providers that
-differ in exactly one line: one asks a signature library a yes/no question and then
+differ at one load-bearing interface boundary: one asks a signature library a yes/no question and then
 asks the document, separately, which assertion to use, while the other takes the
 element verification returned and never queries again. On an honest response they
 agree. On an XML Signature Wrapping document — where the original, still-signed
 assertion is moved into a forged one and nothing cryptographic is touched — the
-signature still verifies, every SAML profile rule still passes, and the first
-consumer authorizes an administrator account that no identity provider ever asserted.
+signature still verifies, every implemented check passes on the attacker's selected
+assertion, and the first consumer authorizes an administrator account that no identity
+provider ever asserted. The hostile document is not claimed to be conforming identity-
+provider output; it is an adversarial input that isolates a consumer-side binding bug.
 Nothing here contacts a real identity provider, processes a real identity, or is a
 production SAML stack.
 
@@ -35,9 +37,12 @@ provider / service provider / attacker are three modules in one browser tab, key
 material is generated per run and never stored or sent, and both identities are
 fixtures on the RFC 2606 reserved `.invalid` domain.
 
-### The accepted subset
+### The enforced subset
 
-Anything outside this table is refused **by name, before any cryptography runs**.
+For each field and shape listed below, anything outside the accepted value is refused by a
+named rule. Unsupported algorithms and reference shapes stop before cryptography; position
+rules are evaluated after verification. This is not a complete XML Schema or SAML profile
+validator, and unlisted Core requirements are not silently claimed.
 
 | Field | Accepted | Source |
 |---|---|---|
@@ -48,13 +53,23 @@ Anything outside this table is refused **by name, before any cryptography runs**
 | `Transforms` | exactly enveloped-signature then exclusive-c14n, in that order | SAMLCore 5.4.4 |
 | `Reference` | exactly one, `URI="#id"`, same-document, resolving to exactly one element | SAMLCore 5.4.2 |
 | Verified node | a `saml:Assertion` that is a **direct child** of the `samlp:Response` | W3C XMLDSIG Best Practice 14 |
+| Document root | `samlp:Response` | SAMLProf 4.1.4.2; W3C XMLDSIG Best Practice 14 |
 | `KeyInfo` | ignored; the key is the service provider's pinned trust anchor | SAMLCore 5.4.5 |
 
-**One deviation from SAML Core 5.4.1 is deliberate.** That section says processors
+At L3, the Response Destination and Response-level `InResponseTo` are checked against local
+service-provider state, one complete bearer `SubjectConfirmation` candidate must pass, and
+this one-relied-upon-assertion subset requires the selected assertion to carry an
+`AuthnStatement`. It accepts four-digit UTC SAML instants in
+`YYYY-MM-DDThh:mm:ss[.fraction]Z` form. Fields from separate confirmation candidates are
+never combined. Errata 05 E26 states the authentication-statement rule over the set of
+bearer assertions; requiring it on the one selected assertion is this lab's bounded,
+stricter adaptation.
+
+**One cryptographic policy choice relative to SAML Core 5.4.1 is deliberate.** That section says processors
 SHOULD support `rsa-sha1`. SHA-1 is not collision resistant and is unfit for
 signatures, so this lab implements `rsa-sha256` from XML Signature 1.1 instead and
-supports no SHA-1 algorithm at all. It is the only place the lab knowingly departs
-from the specification text.
+supports no SHA-1 algorithm at all. Other bounded adaptations and omissions are named
+where they occur rather than being treated as full profile conformance.
 
 ## Four questions a single boolean hides
 
@@ -64,9 +79,9 @@ separately, on every run, and every negative control names which one it failed.
 
 | Layer | Question | Established by |
 |---|---|---|
-| **L1 signature** | Is `SignatureValue` valid over the canonical `SignedInfo`, under the trusted key? | the dependency, and independently this lab's own Web Crypto recomputation |
+| **L1 signature** | Is `SignatureValue` valid over the canonical `SignedInfo`, under the trusted key? | the dependency, plus a bounded Web Crypto recomputation that shares the parser and canonicalizer |
 | **L2 binding** | Which single element does the one `Reference` resolve to, is that unambiguous, and **is it the element the application is about to read?** | the digest half by the dependency; the rest by the application |
-| **L3 profile** | Audience, recipient, subject confirmation, `InResponseTo`, validity windows, single use — on the L2 element and nothing else | SAMLProf 4.1.4.2/3/5 as amended by Errata 05 E26; SAMLCore 2.5.1.2/2.5.1.4 |
+| **L3 profile** | Response correlation and status, audience, recipient, an authentication statement, one complete bearer-confirmation tuple, validity windows and single use — on the L2 element and local SP state | SAMLProf 4.1.4.2/3/5 as amended by Errata 05 E26; SAMLCore 1.3.3/2.5.1.2/2.5.1.4/3.2.2 |
 | **L4 authorization** | Which principal, and which role? | the application |
 
 ### What the library establishes, and what it cannot
@@ -92,6 +107,11 @@ question no signature library answers for you, and it is the one this lab is abo
 The third row is why the repair is the element binding and not the position rule: the
 verified node is in the right position there, and only a consumer that never asks the
 document a second time gets it right.
+
+Both malicious rows are adversarial documents, not conforming IdP output. In particular,
+the sibling-assertion document does not satisfy the POST profile's rule that every relied-
+upon assertion be signature-protected. The row tests a narrower and important property:
+authorization stays bound to the assertion that was actually verified.
 
 **Signature-byte tampering is a different row on purpose.** It breaks the cryptography
 and both consumers catch it at L1. Wrapping breaks nothing cryptographic at all. A lab
@@ -120,7 +140,13 @@ starts from a response the synthetic identity provider really signed.
 - **Production XML-parser hardening.** Parsing uses `@xmldom/xmldom`'s defaults. No
   claim is made about entity expansion, external entities, or schema-validation and
   round-tripping differences between parsers — and that last class is itself a known
-  source of wrapping variants.
+  source of wrapping variants. Required Core attributes and constructs outside the
+  explicitly listed checks are generated by the fixtures but are not comprehensively
+  validated.
+- **Full multi-assertion profile conformance.** The attack documents are hostile inputs,
+  not conforming IdP output. This bounded consumer does not use E26's same-principal and
+  every-relied-upon-assertion protection rules as its binding repair; a production
+  consumer must enforce those rules as well.
 - **The other wrapping permutations.** Somorovsky et al. Figure 7 enumerates twelve
   two-level permutations alone; this lab executes two, plus related reference defects.
 - **Other bindings and profiles** — no HTTP Redirect binding and its query-string
@@ -176,8 +202,8 @@ npm run dev
 
 ```bash
 npm run typecheck      # tsc --noEmit over src, tests, e2e and the configs
-npm test               # vitest run (76 tests, 7 files)
-npm run test:mutation  # clean baseline, 18 named mutations, byte-for-byte restore
+npm test               # vitest run (88 tests, 7 files)
+npm run test:mutation  # clean baseline, 26 named mutations, byte-for-byte restore
 npm run build          # tsc --noEmit && vite build
 npm run test:a11y      # playwright: claims, WCAG A/AA, forced colors, 320/380/1280 reflow
 ```
@@ -190,17 +216,22 @@ What the suites assert, beyond "it runs":
   and attribute ordering, empty-element form, and the different escaping rules for text
   and for attribute values. Every digest claim in this lab rests on those bytes, so they
   are checked against the specification rather than captured from a run.
-- **Two independent verification paths.** The lab recomputes the reference digest and
-  verifies `SignatureValue` through Web Crypto directly, separately from the dependency,
-  and the suite asserts the two agree on every fixture. One of the tests drives Web
-  Crypto with no part of the lab's own verifier in the path at all.
+- **Two cross-checking verification paths, with the shared machinery named.** The lab
+  reapplies the enveloped transform, recomputes the reference digest, and verifies
+  `SignatureValue` through Web Crypto without calling `SignedXml.Verify`. It shares the
+  dependency's XML parser and exclusive canonicalizer, so this is not described as an
+  end-to-end independent implementation; the hand-derived vectors above check that shared
+  canonicalizer against the specification.
 - **The wrapping premise.** Four things are asserted separately, so this cannot quietly
   become a tampering demo: the malicious document's signature really verifies, the moved
   assertion is byte-identical in canonical form, the vulnerable consumer authorizes the
   attacker's subject, and the repaired consumer refuses by name at L2.
 - **Boundaries, not just the obvious cases.** Validity windows are tested one second
   either side of the allowed clock skew in both directions.
-- **Replay's two real failure modes** — a rejected assertion must not burn its ID, and
+- **Profile boundaries and state.** Multiple bearer confirmations are tested both with a
+  later valid tuple and with two partial tuples that must never be combined. Malformed
+  SAML instants and a missing `AuthnStatement` are refused. A rejected assertion —
+  including one under a bad Response Destination, Response correlation, or Status — must not burn its ID, and
   one service provider's consumed set must not leak into another's.
 - **Browser claims that recompute, with no parser at all.** The rendered SAML document is
   re-read in the test by a token scanner that walks the serialized bytes and tracks
@@ -209,7 +240,7 @@ What the suites assert, beyond "it runs":
   and the page's displayed digests, reference URI, assertion census, control count and
   authorization outcome are all checked against that independent read rather than against
   the page's own sentences.
-- **The mutation gate** asserts a clean baseline first, runs 18 named mutations each
+- **The mutation gate** asserts a clean baseline first, runs 26 named mutations each
   against one named owning test, allows no retries and no skips, refuses a mutation whose
   anchor no longer applies, verifies byte-for-byte restoration by hash, and re-runs the
   clean baseline afterwards.

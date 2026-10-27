@@ -10,6 +10,7 @@ import { generateSigningKeys, shortFingerprint, type SigningKeys } from './keys.
 import { buildResponse, honestSpec, type ResponseSpec } from './build.js';
 import { signResponse } from './sign.js';
 import { freshState, type ServiceProviderState } from './checks.js';
+import { NS, allElements, childElements, parseXml, serializeXml } from './dom.js';
 import {
   assertionCensus,
   repairedConsume,
@@ -218,8 +219,9 @@ export async function runControls(parties: Parties): Promise<ControlRow[]> {
   await row(
     'An unsigned assertion placed first',
     'binding',
-    'accepted at L4 - and for the right person: the repaired consumer reads the element ' +
-      'verification returned, so the attacker\u2019s assertion is simply never consulted',
+    'accepted at L4 in this binding-isolation model - and for the right person: the ' +
+      'repaired consumer reads the element verification returned; the hostile Response ' +
+      'as a whole is not claimed profile-conforming',
     siblingAssertionFirst(honest, base, MALLORY.nameId),
     PENDING_REQUEST_ID,
     'accepted',
@@ -252,6 +254,32 @@ export async function runControls(parties: Parties): Promise<ControlRow[]> {
     'L2 binding',
     'SAMLCore 5.4.4',
   );
+  await row(
+    'The signed assertion sits under a non-SAML document root',
+    'binding',
+    'refused at L2: this subset accepts only a samlp:Response document root',
+    honest
+      .replace(
+        '<samlp:Response ',
+        '<attacker:Envelope xmlns:attacker="urn:lab:attacker-envelope" ',
+      )
+      .replace('</samlp:Response>', '</attacker:Envelope>'),
+    PENDING_REQUEST_ID,
+    'L2 binding',
+    'W3C XMLDSIG Best Practice 14; SAMLProf 4.1.4.2',
+  );
+  await row(
+    'A valid assertion signature is placed under the Response',
+    'binding',
+    'refused at L2: this subset requires the Signature directly after the Assertion Issuer',
+    await signResponse(buildResponse(base), parties.idp.privateKey, {
+      referenceId: base.assertionId,
+      placeInside: 'response-root',
+    }),
+    PENDING_REQUEST_ID,
+    'L2 binding',
+    'SAMLCore 5.4.1; SAML assertion schema sequence',
+  );
 
   // --- L3, the profile. The documents are honestly signed and genuinely wrong. ---
   const profileCases: [string, string, Partial<ResponseSpec>, string][] = [
@@ -266,6 +294,12 @@ export async function runControls(parties: Parties): Promise<ControlRow[]> {
       'refused at L3: delivered somewhere this assertion does not name',
       { recipient: 'https://other.lab.invalid/saml2/acs' },
       'SAMLProf 4.1.4.3; SAMLSec 6.4.2',
+    ],
+    [
+      'Response Destination is a different consumer URL',
+      'refused at L3 without consuming the assertion ID',
+      { destination: 'https://other.lab.invalid/saml2/acs' },
+      'SAMLCore 3.2.2; SAMLBind 3.5',
     ],
     [
       'Subject confirmation is not bearer',
@@ -307,6 +341,67 @@ export async function runControls(parties: Parties): Promise<ControlRow[]> {
     const xml = await issueSignedResponse(parties, spec);
     await row(name, 'profile', expectation, xml, PENDING_REQUEST_ID, 'L3 profile', source);
   }
+
+  // Response.InResponseTo and SubjectConfirmationData.InResponseTo are two
+  // separate protocol fields. Alter only the unsigned Response-level value so
+  // this control proves the service provider evaluates both copies.
+  const wrongResponseCorrelation = parseXml(honest);
+  const wrongResponseRoot = wrongResponseCorrelation.documentElement;
+  if (!wrongResponseRoot) throw new Error('the honest fixture has no document root');
+  wrongResponseRoot.setAttribute(
+    'InResponseTo',
+    '_s12authnrequest00000000000000999',
+  );
+  await row(
+    'Response InResponseTo does not match the pending request',
+    'profile',
+    'refused at L3 without consuming the assertion ID; the signed confirmation still matches',
+    serializeXml(wrongResponseCorrelation),
+    PENDING_REQUEST_ID,
+    'L3 profile',
+    'SAMLCore 3.2.2; SAMLProf 4.1.5',
+  );
+
+  const noAuthnSpec = { ...honestSpec() } as ResponseSpec;
+  noAuthnSpec.assertionId = `${noAuthnSpec.assertionId.slice(0, -2)}88`;
+  const noAuthnDoc = buildResponse(noAuthnSpec);
+  const noAuthnAssertion = allElements(noAuthnDoc, NS.saml, 'Assertion')[0];
+  const authnStatement = noAuthnAssertion
+    ? childElements(noAuthnAssertion, NS.saml, 'AuthnStatement')[0]
+    : null;
+  if (!noAuthnAssertion || !authnStatement) throw new Error('the fixture has no AuthnStatement');
+  noAuthnAssertion.removeChild(authnStatement);
+  await row(
+    'Selected assertion has no authentication statement',
+    'profile',
+    'refused at L3: this one-assertion subset requires an AuthnStatement on the selected assertion',
+    await signResponse(noAuthnDoc, parties.idp.privateKey, {
+      referenceId: noAuthnSpec.assertionId,
+      placeInside: 'referenced-element',
+    }),
+    PENDING_REQUEST_ID,
+    'L3 profile',
+    'SAMLProf 4.1.4.2 (Errata 05 E26); bounded one-assertion adaptation',
+  );
+
+  const malformedTimeSpec = { ...honestSpec() } as ResponseSpec;
+  malformedTimeSpec.assertionId = `${malformedTimeSpec.assertionId.slice(0, -2)}89`;
+  const malformedTimeDoc = buildResponse(malformedTimeSpec);
+  const malformedConditions = allElements(malformedTimeDoc, NS.saml, 'Conditions')[0];
+  if (!malformedConditions) throw new Error('the fixture has no Conditions');
+  malformedConditions.setAttribute('NotOnOrAfter', 'not-a-saml-instant');
+  await row(
+    'Conditions carries a malformed time value',
+    'profile',
+    'refused at L3: a malformed instant is not treated as an absent bound',
+    await signResponse(malformedTimeDoc, parties.idp.privateKey, {
+      referenceId: malformedTimeSpec.assertionId,
+      placeInside: 'referenced-element',
+    }),
+    PENDING_REQUEST_ID,
+    'L3 profile',
+    'SAMLCore 1.3.3; SAMLCore 2.5.1.2',
+  );
 
   // An unsolicited response that still carries InResponseTo.
   const unsolicited = { ...honestSpec(), inResponseTo: null } as ResponseSpec;

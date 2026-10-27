@@ -34,13 +34,12 @@ function text(doc: XmlDocument, value: string): unknown {
 }
 
 /**
- * A complete, profile-valid assertion the attacker wrote.
+ * A complete assertion that passes this lab's selected-assertion checks.
  *
- * It has to be profile-valid: every audience, recipient, InResponseTo and time
- * attribute is attacker-controlled, so a consumer that validates the profile on
- * the wrong element validates it successfully. That is precisely why profile
- * validation is not a defence against wrapping, and the forged assertion is
- * built to demonstrate it rather than to be caught by it.
+ * Every audience, recipient, InResponseTo and time attribute is attacker-
+ * controlled, so a consumer that runs those checks on the wrong element accepts
+ * it. The hostile Response as a whole is not claimed to be conforming IdP output;
+ * this assertion is built to isolate the consumer's element-binding defect.
  */
 function forgedAssertion(doc: XmlDocument, spec: ResponseSpec, nameId: string, id: string): XmlElement {
   const assertion = el(doc, 'Assertion');

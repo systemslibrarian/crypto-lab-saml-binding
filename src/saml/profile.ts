@@ -35,10 +35,12 @@ export const STATUS_SUCCESS = 'urn:oasis:names:tc:SAML:2.0:status:Success';
  * The accepted algorithm and structure subset.
  *
  * SAML Core section 5.4 already narrows XML Signature sharply, and this lab
- * takes each of its MAYs and SHOULDs at the strictest reading: anything outside
- * this table is refused by name before any cryptography runs.
+ * takes each implemented MAY and SHOULD at a strict reading. For fields listed
+ * in this table, unsupported algorithms and reference shapes are refused before
+ * cryptography, binding rules after verification, and profile rules at L3. This
+ * declared teaching subset is not a complete schema or profile validator.
  *
- * One deviation from Core 5.4.1 is deliberate and is stated rather than hidden.
+ * One cryptographic policy choice relative to Core 5.4.1 is deliberate and is stated rather than hidden.
  * That section says processors SHOULD support rsa-sha1. SHA-1 is not collision
  * resistant and is unfit for signatures, so this lab implements rsa-sha256 from
  * XML Signature 1.1 instead and supports no SHA-1 algorithm at all.
@@ -146,14 +148,29 @@ export function declaredSubset(): { field: string; value: string; source: string
       source: 'W3C XMLDSIG Best Practice 14 (name and position)',
     },
     {
+      field: 'Document root',
+      value: 'samlp:Response',
+      source: 'SAMLProf 4.1.4.2; W3C XMLDSIG Best Practice 14',
+    },
+    {
       field: 'KeyInfo',
       value: 'ignored; the verifying key is the service provider’s pinned trust anchor',
       source: 'SAMLCore 5.4.5',
     },
     {
       field: 'Subject confirmation',
-      value: `${BEARER}`,
-      source: 'SAMLProf 4.1.4.2',
+      value: `one complete ${BEARER} candidate must pass; fields are never mixed`,
+      source: 'SAMLProf 4.1.4.2 and 4.1.4.3 (Errata 05 E26)',
+    },
+    {
+      field: 'Authentication statement',
+      value: 'the one selected assertion has at least one direct saml:AuthnStatement',
+      source: 'SAMLProf 4.1.4.2 (Errata 05 E26); bounded stricter adaptation',
+    },
+    {
+      field: 'Time syntax',
+      value: 'bounded four-digit UTC form YYYY-MM-DDThh:mm:ss[.fraction]Z',
+      source: 'SAMLCore 1.3.3; bounded teaching subset',
     },
   ];
 }

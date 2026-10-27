@@ -58,7 +58,7 @@ export interface BindingFailure {
   detail: string;
 }
 
-export interface IndependentCheck {
+export interface RecomputedCheck {
   /** SHA-256 over the exclusively canonicalized, enveloped-transformed reference target. */
   recomputedDigest: string;
   /** The digest the document claims, hex-encoded from its base64 DigestValue. */
@@ -76,8 +76,8 @@ export interface BoundVerification {
   /** What a boolean-returning library call reports, on its own. */
   libraryVerified: boolean;
   libraryError: string | null;
-  /** This lab's own recomputation, through a separate code path. */
-  independent: IndependentCheck | null;
+  /** Bounded recomputation; it shares the dependency's parser and canonicalizer. */
+  recomputed: RecomputedCheck | null;
   /** The element the reference actually resolved to, or null if nothing may be trusted. */
   verifiedElement: XmlElement | null;
   verifiedElementId: string | null;
@@ -239,6 +239,15 @@ function resolveReference(
  */
 function checkPosition(doc: XmlDocument, element: XmlElement): BindingFailure[] {
   const failures: BindingFailure[] = [];
+  const root = doc.documentElement as unknown as XmlElement;
+  if (root.namespaceURI !== NS.samlp || root.localName !== 'Response') {
+    failures.push({
+      rule: 'response-root-wrong-name',
+      detail:
+        `the document root is <${root.nodeName}>, not samlp:Response; a direct-child test ` +
+        'has meaning only inside the response shape this profile declares',
+    });
+  }
   if (element.namespaceURI !== NS.saml || element.localName !== 'Assertion') {
     failures.push({
       rule: 'verified-node-wrong-name',
@@ -246,7 +255,6 @@ function checkPosition(doc: XmlDocument, element: XmlElement): BindingFailure[] 
     });
     return failures;
   }
-  const root = doc.documentElement as unknown as XmlElement;
   const direct = childElements(root, NS.saml, 'Assertion');
   if (!direct.some((candidate) => candidate === element)) {
     failures.push({
@@ -254,6 +262,34 @@ function checkPosition(doc: XmlDocument, element: XmlElement): BindingFailure[] 
       detail:
         'the signature covers a saml:Assertion that is not a direct child of the ' +
         'samlp:Response, so it is not the assertion this response delivers',
+    });
+  }
+
+  // SAML Core 5.4.1 and the Assertion schema place the optional Signature
+  // immediately after the one direct Issuer. The enveloped-signature transform
+  // can still verify if a Signature is moved outside its assertion or later in
+  // the assertion, so this position is an application check, not a consequence
+  // of a true cryptographic verdict.
+  const elementChildren: XmlElement[] = [];
+  for (let i = 0; i < element.childNodes.length; i += 1) {
+    const child = element.childNodes[i] as unknown as XmlElement;
+    if (child.nodeType === 1) elementChildren.push(child);
+  }
+  const issuers = elementChildren.filter(
+    (child) => child.namespaceURI === NS.saml && child.localName === 'Issuer',
+  );
+  const signatures = elementChildren.filter(
+    (child) => child.namespaceURI === NS.ds && child.localName === 'Signature',
+  );
+  const issuerIndex = issuers.length === 1 ? elementChildren.indexOf(issuers[0] as XmlElement) : -1;
+  const signatureIndex =
+    signatures.length === 1 ? elementChildren.indexOf(signatures[0] as XmlElement) : -1;
+  if (issuerIndex < 0 || signatureIndex !== issuerIndex + 1) {
+    failures.push({
+      rule: 'signature-wrong-position',
+      detail:
+        'this subset requires one ds:Signature directly inside the verified assertion, ' +
+        'immediately after its one direct saml:Issuer',
     });
   }
   return failures;
@@ -273,7 +309,7 @@ async function recompute(
   referenceId: string,
   structure: SignatureStructure,
   publicKey: CryptoKey,
-): Promise<IndependentCheck> {
+): Promise<RecomputedCheck> {
   const working = parseXml(xml);
   const target = (elementsWithId(working, referenceId) as XmlElement[])[0];
   if (!target) throw new Error(`recomputation found no element with ID ${referenceId}`);
@@ -351,7 +387,7 @@ export async function verifyBound(xml: string, publicKey: CryptoKey): Promise<Bo
       failures,
       libraryVerified: false,
       libraryError: 'not attempted: the signature is outside the declared subset',
-      independent: null,
+      recomputed: null,
       verifiedElement: null,
       verifiedElementId: null,
     };
@@ -365,7 +401,7 @@ export async function verifyBound(xml: string, publicKey: CryptoKey): Promise<Bo
       failures,
       libraryVerified: false,
       libraryError: 'not attempted: the reference does not resolve to exactly one element',
-      independent: null,
+      recomputed: null,
       verifiedElement: null,
       verifiedElementId: null,
     };
@@ -373,18 +409,26 @@ export async function verifyBound(xml: string, publicKey: CryptoKey): Promise<Bo
 
   const referenceId = (structure.referenceUri ?? '').slice(1);
   const library = await libraryVerify(doc, publicKey);
-  const independent = await recompute(xml, referenceId, structure, publicKey);
+  const recomputed = await recompute(xml, referenceId, structure, publicKey);
 
-  if (!independent.digestMatches) {
+  if (!recomputed.digestMatches) {
     failures.push({
       rule: 'digest-mismatch',
       detail: 'the referenced element does not hash to the DigestValue in SignedInfo',
     });
   }
-  if (!independent.signatureValid) {
+  if (!recomputed.signatureValid) {
     failures.push({
       rule: 'signature-invalid',
       detail: 'SignedInfo does not verify under the service provider’s trusted key',
+    });
+  }
+  if (!library.verified) {
+    failures.push({
+      rule: 'library-verification-failed',
+      detail:
+        library.error ??
+        'the XML Signature verifier returned false even though the bounded recomputation passed',
     });
   }
   failures.push(...checkPosition(doc, resolution.element));
@@ -395,7 +439,7 @@ export async function verifyBound(xml: string, publicKey: CryptoKey): Promise<Bo
     failures,
     libraryVerified: library.verified,
     libraryError: library.error,
-    independent,
+    recomputed,
     verifiedElement: ok ? resolution.element : null,
     verifiedElementId: ok ? referenceId : null,
   };

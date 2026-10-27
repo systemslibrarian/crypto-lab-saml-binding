@@ -46,8 +46,9 @@ describe('exclusive canonicalization, against the specification', () => {
   });
 
   it('re-declares an inherited prefix when a subset is canonicalized alone', () => {
-    // This is the property SAML Core 5.4.3 cites: a signature over an embedded
-    // element verifies independently of the context it was embedded in.
+    // This is the property SAML Core 5.4.3 relies on: the canonical subset
+    // carries its visibly utilized namespace instead of depending on an
+    // unrendered ancestor declaration.
     expect(
       c14nOf('<a:root xmlns:a="urn:a" xmlns:b="urn:b"><a:kid x="1"/></a:root>', (doc) =>
         doc.getElementsByTagNameNS('urn:a', 'kid')[0],
@@ -77,7 +78,9 @@ describe('exclusive canonicalization, against the specification', () => {
   });
 
   it('is byte-stable across a serialize and reparse round trip', () => {
+    const expected = '<a:root xmlns:a="urn:a"><a:kid>text</a:kid></a:root>';
     const once = c14nOf('<a:root xmlns:a="urn:a"><a:kid>text</a:kid></a:root>');
-    expect(c14nOf(once)).toBe(once);
+    expect(once).toBe(expected);
+    expect(c14nOf(once)).toBe(expected);
   });
 });

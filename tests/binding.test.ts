@@ -2,14 +2,14 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { buildResponse, honestSpec } from '../src/saml/build.js';
 import { issueSignedResponse, newParties, type Parties } from '../src/saml/lesson.js';
 import { signResponse } from '../src/saml/sign.js';
-import { verifyBound } from '../src/saml/verify.js';
+import { libraryVerify, verifyBound } from '../src/saml/verify.js';
 import {
   addUnsupportedTransform,
   duplicateAssertionId,
   removeReferencedId,
   wrapInAdvice,
 } from '../src/saml/attacks.js';
-import { NS, allElements, parseXml, serializeXml } from '../src/saml/dom.js';
+import { NS, allElements, childElements, parseXml, serializeXml } from '../src/saml/dom.js';
 
 /**
  * L2 - node and reference binding.
@@ -44,15 +44,15 @@ describe('reference resolution', () => {
   it('refuses a reference that resolves to nothing, before any cryptography runs', async () => {
     const result = await verifyBound(removeReferencedId(signed, honestSpec()), parties.idp.publicKey);
     expect(rules(result.failures)).toContain('reference-unresolved');
-    expect(result.independent).toBeNull();
+    expect(result.recomputed).toBeNull();
     expect(result.libraryError).toMatch(/not attempted/);
   }, 60_000);
 
   it('refuses two elements carrying one ID', async () => {
-    const result = await verifyBound(
-      duplicateAssertionId(signed, honestSpec(), 'admin@lab.invalid'),
-      parties.idp.publicKey,
-    );
+    const duplicated = duplicateAssertionId(signed, honestSpec(), 'admin@lab.invalid');
+    const library = await libraryVerify(parseXml(duplicated), parties.idp.publicKey);
+    const result = await verifyBound(duplicated, parties.idp.publicKey);
+    expect(library.verified).toBe(false);
     expect(rules(result.failures)).toEqual(['reference-ambiguous']);
     expect(result.verifiedElement).toBeNull();
   }, 60_000);
@@ -63,7 +63,7 @@ describe('reference resolution', () => {
     reference?.setAttribute('URI', 'https://idp.lab.invalid/assertion.xml');
     const result = await verifyBound(serializeXml(doc), parties.idp.publicKey);
     expect(rules(result.failures)).toContain('reference-uri-not-same-document');
-    expect(result.independent).toBeNull();
+    expect(result.recomputed).toBeNull();
   }, 60_000);
 
   it('refuses an empty URI, which would mean the whole document', async () => {
@@ -78,7 +78,7 @@ describe('the declared algorithm and structure subset', () => {
   it('refuses a third transform', async () => {
     const result = await verifyBound(addUnsupportedTransform(signed), parties.idp.publicKey);
     expect(rules(result.failures)).toContain('transforms-unsupported');
-    expect(result.independent).toBeNull();
+    expect(result.recomputed).toBeNull();
   }, 60_000);
 
   it('refuses an unsupported signature algorithm', async () => {
@@ -120,6 +120,44 @@ describe('the declared algorithm and structure subset', () => {
 });
 
 describe('name and position, per W3C XML Signature Best Practice 14', () => {
+  it('refuses a non-SAML document root even when the signed assertion is a direct child', async () => {
+    const wrongRoot = signed
+      .replace(
+        '<samlp:Response ',
+        '<attacker:Envelope xmlns:attacker="urn:lab:attacker-envelope" ',
+      )
+      .replace('</samlp:Response>', '</attacker:Envelope>');
+    const result = await verifyBound(wrongRoot, parties.idp.publicKey);
+    expect(rules(result.failures)).toContain('response-root-wrong-name');
+    expect(result.recomputed?.digestMatches).toBe(true);
+    expect(result.recomputed?.signatureValid).toBe(true);
+  }, 60_000);
+
+  it('refuses a valid signature moved outside the assertion', async () => {
+    const spec = honestSpec();
+    const misplaced = await signResponse(buildResponse(spec), parties.idp.privateKey, {
+      referenceId: spec.assertionId,
+      placeInside: 'response-root',
+    });
+    const result = await verifyBound(misplaced, parties.idp.publicKey);
+    expect(rules(result.failures)).toContain('signature-wrong-position');
+    expect(result.recomputed?.digestMatches).toBe(true);
+    expect(result.recomputed?.signatureValid).toBe(true);
+  }, 60_000);
+
+  it('refuses a valid enveloped signature moved away from the post-Issuer slot', async () => {
+    const doc = parseXml(signed);
+    const assertion = allElements(doc, NS.saml, 'Assertion')[0];
+    const signature = assertion ? childElements(assertion, NS.ds, 'Signature')[0] : null;
+    if (!assertion || !signature) throw new Error('the honest fixture has no assertion signature');
+    assertion.removeChild(signature);
+    assertion.appendChild(signature);
+    const result = await verifyBound(serializeXml(doc), parties.idp.publicKey);
+    expect(rules(result.failures)).toContain('signature-wrong-position');
+    expect(result.recomputed?.digestMatches).toBe(true);
+    expect(result.recomputed?.signatureValid).toBe(true);
+  }, 60_000);
+
   it('refuses a verified node nested where the response does not deliver it', async () => {
     const result = await verifyBound(
       wrapInAdvice(signed, honestSpec(), 'admin@lab.invalid'),
@@ -127,8 +165,8 @@ describe('name and position, per W3C XML Signature Best Practice 14', () => {
     );
     expect(rules(result.failures)).toEqual(['verified-node-wrong-position']);
     // Everything cryptographic still passes. That is the whole point.
-    expect(result.independent?.digestMatches).toBe(true);
-    expect(result.independent?.signatureValid).toBe(true);
+    expect(result.recomputed?.digestMatches).toBe(true);
+    expect(result.recomputed?.signatureValid).toBe(true);
     expect(result.libraryVerified).toBe(true);
   }, 60_000);
 
@@ -143,6 +181,6 @@ describe('name and position, per W3C XML Signature Best Practice 14', () => {
     });
     const result = await verifyBound(xml, parties.idp.publicKey);
     expect(rules(result.failures)).toEqual(['verified-node-wrong-name']);
-    expect(result.independent?.signatureValid).toBe(true);
+    expect(result.recomputed?.signatureValid).toBe(true);
   }, 60_000);
 });

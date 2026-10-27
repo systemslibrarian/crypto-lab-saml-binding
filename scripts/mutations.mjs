@@ -37,6 +37,21 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
  */
 const MUTATIONS = [
   {
+    name: 'the document root no longer has to be a SAML Response',
+    file: 'src/saml/verify.ts',
+    find: "  if (root.namespaceURI !== NS.samlp || root.localName !== 'Response') {",
+    replace:
+      "  if ((root.namespaceURI !== NS.samlp || root.localName !== 'Response') && false) {",
+    owner: 'tests/binding.test.ts',
+  },
+  {
+    name: 'the assertion signature no longer has to follow its Issuer',
+    file: 'src/saml/verify.ts',
+    find: '  if (issuerIndex < 0 || signatureIndex !== issuerIndex + 1) {',
+    replace: '  if ((issuerIndex < 0 || signatureIndex !== issuerIndex + 1) && false) {',
+    owner: 'tests/binding.test.ts',
+  },
+  {
     name: 'the verified node no longer has to be where the response delivers it',
     file: 'src/saml/verify.ts',
     find: '  if (!direct.some((candidate) => candidate === element)) {',
@@ -88,6 +103,13 @@ const MUTATIONS = [
     owner: 'tests/signature.test.ts',
   },
   {
+    name: 'dependency disagreement is ignored',
+    file: 'src/saml/verify.ts',
+    find: '  if (!library.verified) {',
+    replace: '  if (!library.verified && false) {',
+    owner: 'tests/signature.test.ts',
+  },
+  {
     name: 'exclusive canonicalization is swapped for inclusive',
     file: 'src/saml/verify.ts',
     find: 'const EXCLUSIVE = () => new xmldsig.XmlCanonicalizer(false, true);',
@@ -116,6 +138,17 @@ const MUTATIONS = [
     owner: 'tests/profile.test.ts',
   },
   {
+    name: 'Response InResponseTo is no longer compared with the pending request',
+    file: 'src/saml/checks.ts',
+    find:
+      '  const responseMatchesRequest =\n' +
+      '    expectedRequest === null ? inResponseTo === null : inResponseTo === expectedRequest;',
+    replace:
+      '  const responseMatchesRequest =\n' +
+      '    expectedRequest === null ? inResponseTo === null : inResponseTo === inResponseTo;',
+    owner: 'tests/replay.test.ts',
+  },
+  {
     name: 'a forbidden NotBefore on SubjectConfirmationData is allowed',
     file: 'src/saml/checks.ts',
     find: '    passed: confirmationNotBefore === null,',
@@ -123,10 +156,39 @@ const MUTATIONS = [
     owner: 'tests/profile.test.ts',
   },
   {
+    name: 'a bearer assertion no longer needs an authentication statement',
+    file: 'src/saml/checks.ts',
+    find: '    passed: authnStatements.length > 0,',
+    replace: '    passed: authnStatements.length >= 0,',
+    owner: 'tests/profile.test.ts',
+  },
+  {
+    name: 'only the first bearer confirmation is considered',
+    file: 'src/saml/checks.ts',
+    find: '    candidates.find((candidate) => candidate.accepted) ??',
+    replace: '    candidates[0] ??',
+    owner: 'tests/profile.test.ts',
+  },
+  {
     name: 'the validity window loses its upper bound',
     file: 'src/saml/checks.ts',
-    find: '    (notOnOrAfter === null || NOW_MS - skewMs < notOnOrAfter);',
-    replace: '    (notOnOrAfter === null || NOW_MS - skewMs < notOnOrAfter || true);',
+    find:
+      '    (notOnOrAfterRaw === null ||\n' +
+      '      (notOnOrAfter !== null && NOW_MS - skewMs < notOnOrAfter));',
+    replace:
+      '    (notOnOrAfterRaw === null ||\n' +
+      '      (notOnOrAfter !== null && (NOW_MS - skewMs < notOnOrAfter || true)));',
+    owner: 'tests/profile.test.ts',
+  },
+  {
+    name: 'a malformed Conditions expiry is treated as an absent bound',
+    file: 'src/saml/checks.ts',
+    find:
+      '    (notOnOrAfterRaw === null ||\n' +
+      '      (notOnOrAfter !== null && NOW_MS - skewMs < notOnOrAfter));',
+    replace:
+      '    (notOnOrAfterRaw === null ||\n' +
+      '      notOnOrAfter === null || NOW_MS - skewMs < notOnOrAfter);',
     owner: 'tests/profile.test.ts',
   },
   {
@@ -148,6 +210,14 @@ const MUTATIONS = [
     file: 'src/saml/checks.ts',
     find: '  if (options.consume && !alreadyUsed && results.every((r) => r.passed)) {',
     replace: '  if (options.consume && !alreadyUsed) {',
+    owner: 'tests/replay.test.ts',
+  },
+  {
+    name: 'a bad Response envelope check still burns the assertion ID',
+    file: 'src/saml/consumers.ts',
+    find: '    ...runProfileChecks(assertion, state, { consume: responsePassed }),',
+    replace:
+      '    ...runProfileChecks(assertion, state, { consume: responsePassed ? true : true }),',
     owner: 'tests/replay.test.ts',
   },
   {

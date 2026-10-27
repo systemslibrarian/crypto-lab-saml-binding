@@ -6,10 +6,9 @@ import { boot, runControls, runScenario } from './gate';
  *
  * Every assertion here RECOMPUTES the thing the page claims, from the page's
  * own rendered evidence, rather than reading the sentence the page wrote about
- * it. The rendered SAML document is parsed in the test with the browser's own
- * DOMParser - a different parser from the one the lab ships - and the digests
- * are decoded in the test. If the page's prose and its document ever drifted
- * apart, these fail.
+ * it. A token scanner reads the rendered SAML bytes without any XML parser, and
+ * the digests are decoded in the test. If the page's prose and its document
+ * ever drifted apart, these fail.
  */
 
 /**
@@ -213,8 +212,8 @@ test('the vulnerable consumer authorizes the attacker and the repaired one refus
   expect(repaired).toContain('L2 binding');
   expect(repaired).not.toContain(`Authorized ${attackerSubject}`);
 
-  // Every profile rule passed for the vulnerable consumer: profile validation
-  // is not what stops this, and the page must not suggest it is.
+  // Every implemented selected-assertion check passed for the vulnerable
+  // consumer: those checks are not what repairs the binding defect.
   const vulnerableFails = await panels
     .nth(0)
     .locator('tbody tr td:nth-child(2)')
@@ -229,7 +228,15 @@ test('every negative control behaves the way the page predicts', async ({ page }
 
   const rows = page.locator('#controlsRows tr');
   const count = await rows.count();
-  expect(count).toBeGreaterThanOrEqual(17);
+  expect(count).toBe(23);
+
+  const names = await rows.locator('th').allTextContents();
+  expect(names).toContain('The signed assertion sits under a non-SAML document root');
+  expect(names).toContain('A valid assertion signature is placed under the Response');
+  expect(names).toContain('Selected assertion has no authentication statement');
+  expect(names).toContain('Conditions carries a malformed time value');
+  expect(names).toContain('Response Destination is a different consumer URL');
+  expect(names).toContain('Response InResponseTo does not match the pending request');
 
   const verdicts = await page.locator('#controlsRows tr td:nth-child(6)').allTextContents();
   expect(verdicts.filter((v) => v.trim() !== 'as expected')).toEqual([]);
@@ -305,8 +312,13 @@ test('the page keeps its profile name, its synthetic warning and its omissions v
   expect(body).toContain('Metadata exchange');
   expect(body).toContain('Single Logout');
   expect(body).toContain('Production XML-parser hardening');
+  expect(body).toContain('not a complete XML Schema or SAML profile validator');
+  expect(body).toContain('Full multi-assertion profile conformance');
   expect(body).toContain('only consumer broken');
   // And the declared subset is stated, not merely described.
   expect(body).toContain('http://www.w3.org/2001/10/xml-exc-c14n#');
   expect(body).toContain('rsa-sha256');
+  expect(body).toContain('required authentication statement');
+  expect(body).toContain('one complete confirmation tuple must pass');
+  expect(body).toContain('refuses duplicate IDs');
 });

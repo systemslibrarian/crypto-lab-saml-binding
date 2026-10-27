@@ -4,6 +4,7 @@ import { issueSignedResponse, newParties, type Parties } from '../src/saml/lesso
 import { repairedConsume, vulnerableConsume } from '../src/saml/consumers.js';
 import { freshState } from '../src/saml/checks.js';
 import { ACS_URL, IDP_ENTITY_ID, SP_ENTITY_ID } from '../src/saml/profile.js';
+import { NS, allElements, parseXml, serializeXml } from '../src/saml/dom.js';
 
 /**
  * Single use.
@@ -74,6 +75,65 @@ describe('replay', () => {
     const good = await issueSignedResponse(parties, honestSpec());
     const accepted = await repairedConsume(good, parties.idp.publicKey, sp);
     expect(accepted.authorized).toBe(true);
+    expect(sp.consumed.size).toBe(1);
+  }, 60_000);
+
+  it('does not consume an otherwise-valid assertion delivered to the wrong Destination', async () => {
+    const sp = state();
+    const bad = await issueSignedResponse(parties, {
+      ...honestSpec(),
+      destination: 'https://wrong.lab.invalid/saml2/acs',
+    });
+    const rejected = await repairedConsume(bad, parties.idp.publicKey, sp);
+    expect(rejected.authorized).toBe(false);
+    expect(rejected.checks.find((row) => row.name === 'destination')?.passed).toBe(false);
+    expect(sp.consumed.size).toBe(0);
+
+    const good = await issueSignedResponse(parties, honestSpec());
+    expect((await repairedConsume(good, parties.idp.publicKey, sp)).authorized).toBe(true);
+    expect(sp.consumed.size).toBe(1);
+  }, 60_000);
+
+  it('checks Response InResponseTo separately and does not consume on a mismatch', async () => {
+    const sp = state();
+    const good = await issueSignedResponse(parties, honestSpec());
+    const badDoc = parseXml(good);
+    const root = badDoc.documentElement;
+    if (!root) throw new Error('the honest fixture has no document root');
+    root.setAttribute('InResponseTo', '_s12authnrequest00000000000000999');
+
+    const rejected = await repairedConsume(
+      serializeXml(badDoc),
+      parties.idp.publicKey,
+      sp,
+    );
+    expect(rejected.authorized).toBe(false);
+    expect(rejected.checks.find((row) => row.name === 'response-in-response-to')?.passed).toBe(false);
+    expect(rejected.checks.find((row) => row.name === 'in-response-to')?.passed).toBe(true);
+    expect(sp.consumed.size).toBe(0);
+
+    expect((await repairedConsume(good, parties.idp.publicKey, sp)).authorized).toBe(true);
+    expect(sp.consumed.size).toBe(1);
+  }, 60_000);
+
+  it('does not consume an otherwise-valid assertion carried by a non-Success response', async () => {
+    const sp = state();
+    const good = await issueSignedResponse(parties, honestSpec());
+    const badDoc = parseXml(good);
+    const statusCode = allElements(badDoc, NS.samlp, 'StatusCode')[0];
+    if (!statusCode) throw new Error('the honest fixture has no samlp:StatusCode');
+    statusCode.setAttribute('Value', 'urn:oasis:names:tc:SAML:2.0:status:Responder');
+
+    const rejected = await repairedConsume(
+      serializeXml(badDoc),
+      parties.idp.publicKey,
+      sp,
+    );
+    expect(rejected.authorized).toBe(false);
+    expect(rejected.checks.find((row) => row.name === 'status')?.passed).toBe(false);
+    expect(sp.consumed.size).toBe(0);
+
+    expect((await repairedConsume(good, parties.idp.publicKey, sp)).authorized).toBe(true);
     expect(sp.consumed.size).toBe(1);
   }, 60_000);
 

@@ -16,6 +16,33 @@ published.
 | Live URL | `https://systemslibrarian.github.io/crypto-lab-saml-binding/` |
 | Playwright port | 4675, `--strictPort`, unused in the catalog's registry as read on 2026-10-26 |
 
+### Independent audit corrections before merge
+
+The first pull-request head passed its gates but was not merged. A separate review found
+and corrected ten claims or behaviors before integration:
+
+1. a cryptographically valid assertion under a non-SAML root was accepted;
+2. the verifier did not enforce its declared direct, post-Issuer signature position;
+3. a successful bounded recomputation could override a `false` dependency verdict;
+4. a bad Response Destination or Status could consume an otherwise valid assertion ID;
+5. Errata 05 E26's required authentication statement and any-one-complete bearer
+   confirmation semantics were missing;
+6. a malformed Conditions instant could be treated as an absent bound; and
+7. prose called two paths independent although they share the XML parser and
+   canonicalizer, while other prose incorrectly said the pinned dependency could not
+   notice duplicate IDs even though an executable test shows that it does;
+8. only `SubjectConfirmationData.InResponseTo` was checked, leaving the separate
+   Response-level `InResponseTo` field uncorrelated with local request state;
+9. prose turned E26's set-level authentication-statement requirement into a false
+   per-assertion quotation instead of naming this lab's stricter one-selected-assertion
+   adaptation; and
+10. learner-facing claims described the hostile document as passing every SAML profile
+    rule, although it passes only this lab's implemented selected-assertion checks and is
+    not claimed to be conforming identity-provider output.
+
+The controls, unit tests and mutation table below describe the corrected head, not the
+superseded initial run.
+
 ## 2. Source mapping, verified rather than assumed
 
 The roadmap cites "Web Single Sign On and SAML (original PDF pp. 6803–6814)". The local
@@ -39,7 +66,7 @@ the suite on every run:
 
 - the library returns `true` on the wrapped document;
 - the reference still reads `#<original assertion id>`;
-- this lab's independent Web Crypto recomputation agrees: digest matches, signature valid;
+- this lab's bounded Web Crypto recomputation agrees: digest matches, signature valid;
 - a first-match `saml:Assertion` query selects the attacker's element.
 
 If any of those stopped holding, `tests/wrapping.test.ts` fails rather than quietly
@@ -53,18 +80,23 @@ becoming a demonstration of something else.
 | XML Signature Wrapping | **valid** | **authorizes `admin@lab.invalid`, `administrator`** | refuses at L2, rule `verified-node-wrong-position` |
 | Unsigned assertion placed first | **valid** | **authorizes `admin@lab.invalid`, `administrator`** | authorizes `alice@lab.invalid`, `reader` |
 
-On the wrapped document **every SAML profile check passed for the vulnerable consumer**
-(asserted, not assumed). Profile validation is not a defence against validating the wrong
-element, and the page is built so a reader cannot conclude otherwise.
+On the wrapped document **every implemented selected-assertion check passed for the
+vulnerable consumer** (asserted, not assumed). Running those checks on the wrong element is
+not a binding defence. The hostile document is explicitly not presented as conforming IdP
+output or as having passed every rule in the full SAML profile.
 
-### Negative controls: 17 rows, all behaving as predicted
+### Negative controls: 23 rows, all behaving as predicted
 
 | Family | Controls | Repaired consumer stops at |
 |---|---|---|
 | signature | signature bytes altered; signed subject altered; signed by an untrusted key | L1 |
-| binding | XML Signature Wrapping; an unsigned assertion placed first; two elements carry one ID; reference resolves to nothing; a transform outside the declared subset | L2, except the sibling case which is **accepted with the correct subject** |
-| profile | audience; recipient; subject confirmation method; forbidden `NotBefore`; `InResponseTo` mismatch; unsolicited response carrying `InResponseTo`; expired; not yet valid | L3 |
+| binding | XML Signature Wrapping; an unsigned assertion placed first; two elements carry one ID; reference resolves to nothing; a transform outside the declared subset; non-SAML root; misplaced valid signature | L2, except the sibling case which is **accepted with the correct subject** |
+| profile | audience; Response Destination; Response-level `InResponseTo`; recipient; subject confirmation method; selected assertion missing `AuthnStatement`; forbidden `NotBefore`; assertion-level `InResponseTo` mismatch; unsolicited response carrying `InResponseTo`; expired; not yet valid; malformed Conditions time | L3 |
 | replay | the same assertion delivered twice | L3 |
+
+The two malicious binding documents are adversarial inputs, not profile-conforming IdP
+output. “Accepted with the correct subject” in the sibling row proves the narrow element-
+binding property; it is not a claim that a production SP should accept that whole Response.
 
 The two binding rows are the **only** rows in which the vulnerable consumer authorizes
 the attacker; that exclusivity is itself asserted, so a future change that made another
@@ -76,11 +108,13 @@ control fool it would turn something red.
 npm ci                 clean
 npm audit --audit-level=high    found 0 vulnerabilities
 npm run typecheck      clean
-npm test               76 passed, 7 files
-npm run test:mutation  baseline passes; 18/18 caught; restored byte for byte; baseline passes again
-npm run build          dist/index.html 0.87 kB, index js 24.23 kB (8.63 kB gzip),
-                       lesson chunk 572.20 kB (136.56 kB gzip), built in 326 ms
-npm run test:a11y      17 passed
+npm test               88 passed, 7 files
+npm run test:mutation  baseline passes; 26/26 caught; restored byte for byte; baseline passes again
+npm run build          dist/index.html 0.87 kB, index js 25.70 kB (9.18 kB gzip),
+                       lesson chunk 577.06 kB (137.90 kB gzip), built in 153 ms
+npx playwright test --list    17 tests discovered
+npm run test:a11y      local Chromium could not launch on this Mac (Mach rendezvous error 141);
+                       no browser test began, so hosted Linux verification is required
 ```
 
 ### Unit coverage of the protocol modules
@@ -88,7 +122,7 @@ npm run test:a11y      17 passed
 `npx vitest run --coverage`, scoped to `src/saml/**`:
 
 ```
-All files     |   94.43 % stmts |   71.42 % branch |   96.29 % funcs |   97.21 % lines
+All files     |   94.84 % stmts |   75.07 % branch |   96.59 % funcs |   97.59 % lines
 ```
 
 The branch figure is the honest one to look at: it is held down by defensive `?? null`
@@ -99,11 +133,11 @@ removed — which is what the mutation gate measures and coverage does not.
 ### Bundle split
 
 The XML Signature machinery is loaded on first use. The page that explains the profile,
-the four layers and the omissions arrives in 24 kB of JavaScript; the 572 kB lesson chunk
+the four layers and the omissions arrives in 25.70 kB of JavaScript; the 577.06 kB lesson chunk
 loads when a learner presses a button. This is recorded because it is a deliberate choice
 rather than an accident of bundling.
 
-## 6. The 18 named mutations, and their owning tests
+## 6. The 26 named mutations, and their owning tests
 
 Each mutation edits exactly one source line, runs exactly one test file, and must make
 that file fail. No retries, no skips. The harness refuses a mutation whose anchor no
@@ -112,26 +146,34 @@ re-runs the clean baseline afterwards.
 
 | # | Mutation | Owning test |
 |---|---|---|
-| 1 | the verified node no longer has to be where the response delivers it | `wrapping` |
-| 2 | the repaired consumer stops binding to the verified element | `wrapping` |
-| 3 | two elements carrying one ID are no longer ambiguous | `binding` |
-| 4 | a reference that resolves to nothing is tolerated | `binding` |
-| 5 | the transform allow-list stops being a list | `binding` |
-| 6 | any URI shape is treated as a same-document reference | `binding` |
-| 7 | the reference digest is reported as matching whatever it is | `signature` |
-| 8 | exclusive canonicalization is swapped for inclusive | `canonicalization` |
-| 9 | the audience restriction is no longer compared with this service provider | `profile` |
-| 10 | the recipient is no longer compared with the consumer URL | `profile` |
-| 11 | `InResponseTo` is no longer compared with the pending request | `profile` |
-| 12 | a forbidden `NotBefore` on `SubjectConfirmationData` is allowed | `profile` |
-| 13 | the validity window loses its upper bound | `profile` |
-| 14 | the allowed clock skew swallows the boundary | `profile` |
-| 15 | consumed assertion IDs are never recorded | `replay` |
-| 16 | a rejected assertion burns its ID anyway | `replay` |
-| 17 | the issuer is no longer compared with the trusted identity provider | `profile` |
-| 18 | the page stops retiring stale output | `page-contract` |
+| 1 | the document root no longer has to be a SAML Response | `binding` |
+| 2 | the assertion signature no longer has to follow its Issuer | `binding` |
+| 3 | the verified node no longer has to be where the response delivers it | `wrapping` |
+| 4 | the repaired consumer stops binding to the verified element | `wrapping` |
+| 5 | two elements carrying one ID are no longer ambiguous | `binding` |
+| 6 | a reference that resolves to nothing is tolerated | `binding` |
+| 7 | the transform allow-list stops being a list | `binding` |
+| 8 | any URI shape is treated as a same-document reference | `binding` |
+| 9 | the reference digest is reported as matching whatever it is | `signature` |
+| 10 | dependency disagreement is ignored | `signature` |
+| 11 | exclusive canonicalization is swapped for inclusive | `canonicalization` |
+| 12 | the audience restriction is no longer compared with this service provider | `profile` |
+| 13 | the recipient is no longer compared with the consumer URL | `profile` |
+| 14 | assertion `InResponseTo` is no longer compared with the pending request | `profile` |
+| 15 | Response `InResponseTo` is no longer compared with the pending request | `replay` |
+| 16 | a forbidden `NotBefore` on `SubjectConfirmationData` is allowed | `profile` |
+| 17 | the selected assertion no longer needs an authentication statement | `profile` |
+| 18 | only the first bearer confirmation is considered | `profile` |
+| 19 | the validity window loses its upper bound | `profile` |
+| 20 | a malformed Conditions expiry is treated as an absent bound | `profile` |
+| 21 | the allowed clock skew swallows the boundary | `profile` |
+| 22 | consumed assertion IDs are never recorded | `replay` |
+| 23 | a rejected assertion burns its ID anyway | `replay` |
+| 24 | a bad Response envelope check still burns the assertion ID | `replay` |
+| 25 | the issuer is no longer compared with the trusted identity provider | `profile` |
+| 26 | the page stops retiring stale output | `page-contract` |
 
-**Mutations 1 and 2 are the pair worth reading.** Mutation 2 — replacing the repaired
+**Mutations 3 and 4 are the pair worth reading.** Mutation 4 — replacing the repaired
 consumer's bound element with a fresh document query — **survived** when it was first
 written, because on the wrapped document the position rule already refused before the
 mutated line was reached. That survival was a real coverage gap and it was closed by
@@ -140,7 +182,7 @@ leaving the signed one exactly where the position rule wants it. The repaired co
 authorizes the right person there, and only because it never queries the document again.
 The pair is now the proof that both rules are load-bearing and neither is decoration.
 
-## 7. Independent verification anchors
+## 7. Verification anchors and shared machinery
 
 Three places where this lab is checked against something other than itself.
 
@@ -151,11 +193,12 @@ Three places where this lab is checked against something other than itself.
    alone, namespace-before-attribute ordering, empty-element form, and the fact that `>`
    is escaped in text but not in attribute values. Every digest claim in the lab rests on
    these bytes. If the dependency and this file ever disagree, the specification is right.
-2. **A second verification path.** The lab recomputes the reference digest (applying the
-   enveloped-signature transform itself) and verifies `SignatureValue` over the
-   canonicalized `SignedInfo` through Web Crypto, independently of the dependency's
-   `Verify()`. Both answers are displayed and asserted equal. One test drives Web Crypto
-   with no part of the lab's verifier in the path at all.
+2. **A bounded second verification path.** The lab reapplies the enveloped-signature
+   transform, recomputes the reference digest, and verifies `SignatureValue` through Web
+   Crypto without calling the dependency's `Verify()`. It shares the XML parser and
+   canonicalizer with the dependency, so it is not an end-to-end independent
+   implementation; the hand-derived vectors above constrain that shared canonicalizer.
+   Both answers are displayed, and disagreement fails closed.
 3. **Browser claims that recompute, using no XML parser at all.** The rendered SAML
    document is re-read by a token scanner in the test that walks the serialized bytes and
    tracks element nesting directly. It shares no machinery with the implementation —
@@ -171,7 +214,9 @@ Three places where this lab is checked against something other than itself.
 
 ## 8. Accessibility and reflow
 
-Driven through the page's own controls, never injected, in every scenario state:
+The initial pull-request head was driven through the page's own controls, never injected,
+in every scenario state. The independently corrected head retains these gates; its hosted
+result is recorded after push rather than inferred from the earlier run:
 
 - axe `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa` — zero violations at **320, 380 and
   1280 px**, in the un-run state, the baseline, the wrapping attack and the full control

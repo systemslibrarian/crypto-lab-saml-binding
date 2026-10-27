@@ -1,4 +1,5 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+import * as xmldsig from 'xmldsigjs';
 import { honestSpec } from '../src/saml/build.js';
 import { issueSignedResponse, newParties, type Parties } from '../src/saml/lesson.js';
 import { libraryVerify, verifyBound } from '../src/saml/verify.js';
@@ -13,9 +14,10 @@ import { NS, allElements } from '../src/saml/dom.js';
 /**
  * L1 - signature validation.
  *
- * The lab's own recomputation and the dependency's answer are both asserted
- * here, and asserted to agree. Two independent paths that always agree are
- * evidence; one path asserted against itself is not.
+ * The lab's bounded recomputation and the dependency's answer are both
+ * asserted here, and asserted to agree. The paths share the XML parser and
+ * canonicalizer, so the hand-derived canonicalization vectors are the separate
+ * anchor for that shared machinery.
  */
 
 let parties: Parties;
@@ -27,7 +29,7 @@ beforeAll(async () => {
 }, 60_000);
 
 describe('the signature the identity provider produced', () => {
-  it('declares exactly the subset this profile accepts', async () => {
+  it('declares exactly the enforced signature subset', async () => {
     const result = await verifyBound(signed, parties.idp.publicKey);
     expect(result.structure.signatureCount).toBe(1);
     expect(result.structure.referenceCount).toBe(1);
@@ -44,15 +46,32 @@ describe('the signature the identity provider produced', () => {
   it('verifies, and this lab and the dependency agree that it does', async () => {
     const result = await verifyBound(signed, parties.idp.publicKey);
     expect(result.failures).toEqual([]);
-    expect(result.independent?.digestMatches).toBe(true);
-    expect(result.independent?.signatureValid).toBe(true);
+    expect(result.recomputed?.digestMatches).toBe(true);
+    expect(result.recomputed?.signatureValid).toBe(true);
     expect(result.libraryVerified).toBe(true);
   }, 60_000);
 
-  it('verifies when Web Crypto is driven directly, with no library in the path', async () => {
-    // Reference validation and signature validation redone from the raw bytes:
-    // canonicalize SignedInfo, verify RSASSA-PKCS1-v1_5 over it. Nothing here
-    // consults the lab's own verifier either.
+  it('fails closed if the dependency and bounded recomputation disagree', async () => {
+    const verify = vi.spyOn(xmldsig.SignedXml.prototype, 'Verify').mockResolvedValue(false);
+    try {
+      const result = await verifyBound(signed, parties.idp.publicKey);
+      expect(result.recomputed?.digestMatches).toBe(true);
+      expect(result.recomputed?.signatureValid).toBe(true);
+      expect(result.libraryVerified).toBe(false);
+      expect(result.failures.map((failure) => failure.rule)).toContain(
+        'library-verification-failed',
+      );
+      expect(result.verifiedElement).toBeNull();
+    } finally {
+      verify.mockRestore();
+    }
+  }, 60_000);
+
+  it('verifies when Web Crypto is driven separately after canonicalization', async () => {
+    // Signature validation redone from the canonicalized bytes: verify
+    // RSASSA-PKCS1-v1_5 directly through Web Crypto. This intentionally shares
+    // the canonicalizer, whose bytes are pinned by canonicalization.test.ts,
+    // but does not call SignedXml.Verify or the lab's bound verifier.
     const doc = parseXml(signed);
     const signedInfo = allElements(doc, NS.ds, 'SignedInfo')[0];
     const signatureValue = allElements(doc, NS.ds, 'SignatureValue')[0];
@@ -70,19 +89,19 @@ describe('the signature the identity provider produced', () => {
 
   it('does not verify under a key that did not produce it', async () => {
     const result = await verifyBound(signed, parties.attacker.publicKey);
-    expect(result.independent?.signatureValid).toBe(false);
+    expect(result.recomputed?.signatureValid).toBe(false);
     expect(result.failures.map((f) => f.rule)).toContain('signature-invalid');
     // The digest is over the document, not the key, so it still matches: these
     // are two separate properties and the lab reports them separately.
-    expect(result.independent?.digestMatches).toBe(true);
+    expect(result.recomputed?.digestMatches).toBe(true);
   }, 60_000);
 });
 
 describe('tampering, which is not the wrapping lesson', () => {
   it('fails the SIGNATURE when the signature bytes are altered', async () => {
     const result = await verifyBound(tamperSignatureBytes(signed), parties.idp.publicKey);
-    expect(result.independent?.digestMatches).toBe(true);
-    expect(result.independent?.signatureValid).toBe(false);
+    expect(result.recomputed?.digestMatches).toBe(true);
+    expect(result.recomputed?.signatureValid).toBe(false);
     expect(result.libraryVerified).toBe(false);
   }, 60_000);
 
@@ -91,10 +110,10 @@ describe('tampering, which is not the wrapping lesson', () => {
       tamperSignedSubject(signed, 'admin@lab.invalid'),
       parties.idp.publicKey,
     );
-    expect(result.independent?.digestMatches).toBe(false);
+    expect(result.recomputed?.digestMatches).toBe(false);
     // SignedInfo itself was not touched, so the signature over it still checks
     // out. Reference validation is what catches this, per XMLDSIG 1.1 3.2.1.
-    expect(result.independent?.signatureValid).toBe(true);
+    expect(result.recomputed?.signatureValid).toBe(true);
     expect(result.libraryVerified).toBe(false);
     expect(result.failures.map((f) => f.rule)).toContain('digest-mismatch');
   }, 60_000);
