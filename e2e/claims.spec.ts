@@ -305,20 +305,23 @@ test('the page keeps its profile name, its synthetic warning and its omissions v
 }) => {
   await boot(page);
   const body = (await page.locator('main').textContent()) ?? '';
-  expect(body).toContain('S12-WBSSO-POST-SYNTH/1');
-  expect(body).toContain('not an OASIS profile identifier');
-  expect(body).toContain('Nothing here touches a real identity provider');
-  expect(body).toContain('not a production');
-  expect(body).toContain('Metadata exchange');
-  expect(body).toContain('Single Logout');
-  expect(body).toContain('Production XML-parser hardening');
-  expect(body).toContain('not a complete XML Schema or SAML profile validator');
-  expect(body).toContain('Full multi-assertion profile conformance');
-  expect(body).toContain('only consumer broken');
+  // HTML source wrapping inserts whitespace into textContent. Collapse it so
+  // this test checks the learner-visible sentence rather than source layout.
+  const normalizedBody = body.replace(/\s+/g, ' ');
+  expect(normalizedBody).toContain('S12-WBSSO-POST-SYNTH/1');
+  expect(normalizedBody).toContain('not an OASIS profile identifier');
+  expect(normalizedBody).toContain('Nothing here touches a real identity provider');
+  expect(normalizedBody).toContain('not a production');
+  expect(normalizedBody).toContain('Metadata exchange');
+  expect(normalizedBody).toContain('Single Logout');
+  expect(normalizedBody).toContain('Production XML-parser hardening');
+  expect(normalizedBody).toContain('not a complete XML Schema or SAML profile validator');
+  expect(normalizedBody).toContain('Full multi-assertion profile conformance');
+  expect(normalizedBody).toContain('only consumer broken');
   // And the declared subset is stated, not merely described.
-  expect(body).toContain('http://www.w3.org/2001/10/xml-exc-c14n#');
-  expect(body).toContain('rsa-sha256');
-  expect(body).toContain('required authentication statement');
-  expect(body).toContain('one complete confirmation tuple must pass');
-  expect(body).toContain('refuses duplicate IDs');
+  expect(normalizedBody).toContain('http://www.w3.org/2001/10/xml-exc-c14n#');
+  expect(normalizedBody).toContain('rsa-sha256');
+  expect(normalizedBody).toContain('required authentication statement');
+  expect(normalizedBody).toContain('one complete confirmation tuple must pass');
+  expect(normalizedBody).toContain('refuses duplicate IDs');
 });

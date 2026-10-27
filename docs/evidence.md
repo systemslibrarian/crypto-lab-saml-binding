@@ -117,6 +117,12 @@ npm run test:a11y      local Chromium could not launch on this Mac (Mach rendezv
                        no browser test began, so hosted Linux verification is required
 ```
 
+Hosted corrected-head run `40441448660` passed all Node 22/24/26 quality jobs and 16 of
+17 browser tests, then correctly failed the omissions claim because an exact substring
+assertion treated HTML line-wrapping whitespace as content. The page carried the complete
+sentence. The test now collapses whitespace before checking the full learner-visible
+sentence; the next exact-head run must pass before merge.
+
 ### Unit coverage of the protocol modules
 
 `npx vitest run --coverage`, scoped to `src/saml/**`:
