@@ -202,10 +202,13 @@ What the suites assert, beyond "it runs":
   either side of the allowed clock skew in both directions.
 - **Replay's two real failure modes** — a rejected assertion must not burn its ID, and
   one service provider's consumed set must not leak into another's.
-- **Browser claims that recompute.** The rendered SAML document is re-parsed in the test
-  with the browser's own `DOMParser` — a different parser from the one the lab ships —
-  the `DigestValue` is base64-decoded there, and the page's displayed digests, reference
-  URI, assertion census and authorization outcome are checked against it.
+- **Browser claims that recompute, with no parser at all.** The rendered SAML document is
+  re-read in the test by a token scanner that walks the serialized bytes and tracks
+  element nesting directly — it uses neither the lab's XML parser nor the browser's, so it
+  shares no machinery with the implementation. The `DigestValue` is base64-decoded there,
+  and the page's displayed digests, reference URI, assertion census, control count and
+  authorization outcome are all checked against that independent read rather than against
+  the page's own sentences.
 - **The mutation gate** asserts a clean baseline first, runs 18 named mutations each
   against one named owning test, allows no retries and no skips, refuses a mutation whose
   anchor no longer applies, verifies byte-for-byte restoration by hash, and re-runs the

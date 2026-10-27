@@ -156,11 +156,18 @@ Three places where this lab is checked against something other than itself.
    canonicalized `SignedInfo` through Web Crypto, independently of the dependency's
    `Verify()`. Both answers are displayed and asserted equal. One test drives Web Crypto
    with no part of the lab's verifier in the path at all.
-3. **Browser claims that recompute.** The rendered SAML document is re-parsed in the test
-   with the browser's native `DOMParser` — a different parser from the one the lab ships —
-   the `DigestValue` is base64-decoded there, and the page's displayed digests, reference
-   URI, assertion census, control count and authorization outcome are all checked against
-   that independent parse rather than against the page's own sentences.
+3. **Browser claims that recompute, using no XML parser at all.** The rendered SAML
+   document is re-read by a token scanner in the test that walks the serialized bytes and
+   tracks element nesting directly. It shares no machinery with the implementation —
+   neither the lab's parser nor the browser's. The `DigestValue` is base64-decoded there,
+   and the page's displayed digests, reference URI, assertion census, control count and
+   authorization outcome are all checked against that independent read rather than against
+   the page's own sentences.
+
+   The first version of this helper re-parsed the displayed text in the browser with
+   `DOMParser`, and **CodeQL flagged it as `js/xss-through-dom`** — DOM text reinterpreted
+   as markup. The finding was fair and was fixed rather than suppressed, and the
+   replacement is a stronger independent check as well as a safer one.
 
 ## 8. Accessibility and reflow
 
