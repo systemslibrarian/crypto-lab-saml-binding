@@ -1,0 +1,35 @@
+# Grouped so an ecosystem's routine bumps arrive as ONE pull request instead of
+# one per dependency.
+#
+# Majors are deliberately left OUT of the npm group: a breaking major grouped
+# with safe bumps makes the whole pull request unmergeable, so majors come
+# individually and a person decides. github-actions majors ARE grouped, because
+# the action pins in this repository are immutable SHAs and a major bump there
+# is a reviewed pin change rather than a surprise.
+#
+# The minor/patch group and the actions group auto-merge once this lab's own
+# gate passes on the pull request -- see dependabot-auto-merge in deploy.yml.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - "*"

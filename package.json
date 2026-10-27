@@ -1,0 +1,37 @@
+{
+  "name": "crypto-lab-saml-binding",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Synthetic SAML 2.0 Web Browser SSO teaching lab: verifying an XML signature is not the same as authorizing from the object it covered.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:mutation": "node scripts/mutations.mjs",
+    "test:a11y": "playwright test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/systemslibrarian/crypto-lab-saml-binding.git"
+  },
+  "license": "MIT",
+  "homepage": "https://systemslibrarian.github.io/crypto-lab-saml-binding/",
+  "dependencies": {
+    "@xmldom/xmldom": "0.9.12",
+    "xmldsigjs": "2.8.8"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.64.0",
+    "@types/node": "^26.6.5",
+    "@vitest/coverage-v8": "^5.0.4",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
+  }
+}
