@@ -23,7 +23,7 @@
   "homepage": "https://systemslibrarian.github.io/crypto-lab-saml-binding/",
   "dependencies": {
     "@xmldom/xmldom": "0.9.12",
-    "xmldsigjs": "2.8.8"
+    "xmldsigjs": "3.0.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
