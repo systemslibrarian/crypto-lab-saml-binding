@@ -1,4 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
+import { auditControlNames, formatControlNameFailures } from './control-names';
 import { expect, test } from '@playwright/test';
 import {
   WIDTHS,
@@ -26,6 +27,11 @@ async function scan(page: import('@playwright/test').Page, label: string): Promi
     results.violations.map((v) => `${v.id} (${v.nodes.length}) in ${label}`),
     `axe violations in ${label}`,
   ).toEqual([]);
+
+  // axe's `label` rule accepts a bare `placeholder` as an accessible name, so a
+  // deleted label can leave this gate green. See `control-names.ts`.
+  const unnamed = formatControlNameFailures(await auditControlNames(page));
+  expect(unnamed, `form controls named only by placeholder/title in ${label}`).toEqual([]);
 }
 
 for (const size of WIDTHS) {
