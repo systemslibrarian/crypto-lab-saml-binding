@@ -48,7 +48,7 @@ validator, and unlisted Core requirements are not silently claimed.
 |---|---|---|
 | Signature placement | enveloped, inside `saml:Assertion`, immediately after `saml:Issuer` | SAMLCore 5.4.1 |
 | `SignatureMethod` | `…xmldsig-more#rsa-sha256`, RSA-2048 | XMLDSIG 1.1 6.4.2 |
-| `DigestMethod` | `…xmlenc#sha256` | XMLDSIG 1.1 6.2.2 |
+| `DigestMethod` | `…xmlenc#sha256` | XMLDSIG 1.1 6.2.3 |
 | `CanonicalizationMethod` | `…xml-exc-c14n#`, in `SignedInfo` and as a transform | SAMLCore 5.4.3 |
 | `Transforms` | exactly enveloped-signature then exclusive-c14n, in that order | SAMLCore 5.4.4 |
 | `Reference` | exactly one, `URI="#id"`, same-document, resolving to exactly one element | SAMLCore 5.4.2 |

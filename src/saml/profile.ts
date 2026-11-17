@@ -125,7 +125,7 @@ export function declaredSubset(): { field: string; value: string; source: string
     {
       field: 'DigestMethod',
       value: 'http://www.w3.org/2001/04/xmlenc#sha256',
-      source: 'XMLDSIG 1.1 6.2.2',
+      source: 'XMLDSIG 1.1 6.2.3',
     },
     {
       field: 'CanonicalizationMethod',

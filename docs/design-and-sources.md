@@ -253,7 +253,7 @@ unlisted Core requirements are not implied:
 |---|---|---|
 | Signature placement | enveloped, inside `<saml:Assertion>`, immediately after `<saml:Issuer>` | Core §5.4.1; SAML assertion schema sequence |
 | `SignatureMethod` | `http://www.w3.org/2001/04/xmldsig-more#rsa-sha256` (RSASSA-PKCS1-v1_5, SHA-256, RSA-2048) | XMLDSIG 1.1 §6.4.2 / RFC 6931 |
-| `DigestMethod` | `http://www.w3.org/2001/04/xmlenc#sha256` | XMLDSIG 1.1 §6.2.2 |
+| `DigestMethod` | `http://www.w3.org/2001/04/xmlenc#sha256` | XMLDSIG 1.1 §6.2.3 |
 | `CanonicalizationMethod` | `http://www.w3.org/2001/10/xml-exc-c14n#` | Core §5.4.3; Excl-C14N 1.0 |
 | `Transforms` | exactly two, in order: `#enveloped-signature` then `xml-exc-c14n#` | Core §5.4.4 |
 | `Reference` | exactly one, `URI="#<ID>"`, same-document, resolving to exactly one element | Core §5.4.2; XMLDSIG 1.1 §4.4.3.3 |

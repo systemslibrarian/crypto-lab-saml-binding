@@ -130,3 +130,26 @@ describe('stale output is retired rather than left standing', () => {
     expect(main).toMatch(/retireScenario/);
   });
 });
+
+describe('the profile table cites the right XMLDSIG 1.1 sections', () => {
+  // XML Signature Syntax and Processing Version 1.1 numbers its message
+  // digests 6.2.1 SHA-1, 6.2.2 SHA-224, 6.2.3 SHA-256, 6.2.4 SHA-384,
+  // 6.2.5 SHA-512. The DigestMethod row cited 6.2.2, which is SHA-224, not the
+  // xmlenc#sha256 identifier the row names. 6.4.2 (RSA, PKCS#1 v1.5) for the
+  // SignatureMethod row is right and is pinned here so it cannot drift either.
+  const docs = readFileSync(new URL('../docs/design-and-sources.md', import.meta.url), 'utf8');
+
+  for (const [name, text] of [
+    ['src/saml/profile.ts', profile],
+    ['README.md', readme],
+    ['docs/design-and-sources.md', docs],
+  ] as const) {
+    it(name, () => {
+      expect(text, `${name} must cite SHA-256 at 6.2.3`).toMatch(/6\.2\.3/);
+      expect(text, `${name} must not cite SHA-256 at 6.2.2 (that is SHA-224)`).not.toMatch(
+        /6\.2\.2/,
+      );
+      expect(text, `${name} keeps RSA at 6.4.2`).toMatch(/6\.4\.2/);
+    });
+  }
+});
