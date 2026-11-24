@@ -34,7 +34,7 @@ with a real deployment should be built from it.**
 
 Everything is local and synthetic: no network request leaves the page, the identity
 provider / service provider / attacker are three modules in one browser tab, key
-material is generated per run and never stored or sent, and both identities are
+material is generated on first use and reused in memory until the page reloads, and both identities are
 fixtures on the RFC 2606 reserved `.invalid` domain.
 
 ### The enforced subset

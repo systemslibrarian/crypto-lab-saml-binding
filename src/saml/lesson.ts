@@ -1,8 +1,8 @@
 /**
  * Orchestration: every figure the interface shows is produced here, by running
- * the protocol, on this run, with keys generated on this run.
+ * the protocol on this run, using the signing keys supplied by the caller.
  *
- * Nothing is cached between scenarios and nothing is precomputed. Changing an
+ * The page keeps its signing keys between scenarios. It recomputes the evidence each time. Changing an
  * input means re-running, which is why the interface retires a panel rather
  * than leaving a figure beside inputs that did not produce it.
  */

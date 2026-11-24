@@ -12,7 +12,7 @@
  *
  * Everything below is synthetic. The identity provider, the service provider
  * and the attacker are three modules in one browser tab; no network request
- * leaves the page; key material is generated locally on every run; and the two
+ * leaves the page; key material is generated locally for the page session; and the two
  * identities live on the RFC 2606 reserved `.invalid` top-level domain so they
  * cannot be mistaken for anyone.
  */

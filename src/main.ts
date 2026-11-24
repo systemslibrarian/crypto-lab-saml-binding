@@ -81,7 +81,7 @@ document.getElementById('app')!.innerHTML = `
       <strong>Nothing here touches a real identity provider or a real identity.</strong>
       No network request leaves the page. The identity provider, the service provider and
       the attacker are three modules in one browser tab. RSA-2048 key material is generated
-      locally on every run by Web Crypto and is never stored or sent. The only two identities
+      locally by Web Crypto on the first run and reused within this page load. Reloading starts a new session. The keys are never persisted or sent. The only two identities
       are fixtures on the reserved <code>.invalid</code> domain. This is not a production
       SAML stack and must not be used as one.
     </p>
